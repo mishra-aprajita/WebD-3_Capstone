@@ -209,4 +209,37 @@ export const userApi = {
       }
     });
   },
+
+  /**
+   * Get pending incoming follow requests for logged-in user
+   * Express Route: GET /api/users/me/follow-requests
+   */
+  async getFollowRequests() {
+    return apiClient('/users/me/follow-requests', {
+      method: 'GET',
+      fallbackHandler: async () => [],
+    });
+  },
+
+  /**
+   * Accept a follow request
+   * Express Route: POST /api/users/follow-requests/:userId/accept
+   */
+  async acceptFollowRequest(userId) {
+    return apiClient(`/users/follow-requests/${userId}/accept`, {
+      method: 'POST',
+      fallbackHandler: async () => ({ success: true }),
+    });
+  },
+
+  /**
+   * Decline a follow request
+   * Express Route: POST /api/users/follow-requests/:userId/decline
+   */
+  async declineFollowRequest(userId) {
+    return apiClient(`/users/follow-requests/${userId}/decline`, {
+      method: 'POST',
+      fallbackHandler: async () => ({ success: true }),
+    });
+  },
 };

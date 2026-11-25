@@ -1,18 +1,29 @@
 import { Reel } from '../models/Reel.js';
+import { Post } from '../models/Post.js';
 import { Comment } from '../models/Comment.js';
+import { User } from '../models/User.js';
 
 export const getReels = async (req, res, next) => {
   try {
-    const reels = await Reel.find()
-      .populate('author', 'username avatarUrl name')
-      .sort({ createdAt: -1 });
+    const [reels, videoPosts] = await Promise.all([
+      Reel.find()
+        .populate('author', 'username avatarUrl name')
+        .sort({ createdAt: -1 }),
+      Post.find({ $or: [{ mediaType: 'video' }, { isReel: true }] })
+        .populate('author', 'username avatarUrl name')
+        .sort({ createdAt: -1 }),
+    ]);
 
     // Attach comment count per reel
-    const enriched = await Promise.all(
+    const enrichedReels = await Promise.all(
       reels.map(async (reel) => {
         const commentsCount = await Comment.countDocuments({ post: reel._id });
+        const json = reel.toJSON();
         return {
-          ...reel.toJSON(),
+          ...json,
+          url: json.videoUrl,
+          mediaType: 'video',
+          isReel: true,
           likesCount: reel.likes.length,
           commentsCount,
           isLiked: req.user
@@ -22,7 +33,31 @@ export const getReels = async (req, res, next) => {
       })
     );
 
-    res.json(enriched);
+    const enrichedVideoPosts = await Promise.all(
+      videoPosts.map(async (post) => {
+        const commentsCount = await Comment.countDocuments({ post: post._id });
+        const json = post.toJSON();
+        return {
+          ...json,
+          videoUrl: json.imageUrl,
+          url: json.imageUrl,
+          mediaType: json.mediaType || 'video',
+          isReel: true,
+          audioTitle: json.location || 'Original Audio',
+          likesCount: post.likes.length,
+          commentsCount,
+          isLiked: req.user
+            ? post.likes.some((id) => id.toString() === req.user._id.toString())
+            : false,
+        };
+      })
+    );
+
+    const combined = [...enrichedReels, ...enrichedVideoPosts].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    res.json(combined);
   } catch (error) {
     next(error);
   }
@@ -50,9 +85,13 @@ export const createReel = async (req, res, next) => {
     });
 
     await reel.populate('author', 'username avatarUrl name');
+    const json = reel.toJSON();
 
     res.status(201).json({
-      ...reel.toJSON(),
+      ...json,
+      url: json.videoUrl,
+      mediaType: 'video',
+      isReel: true,
       likesCount: 0,
       commentsCount: 0,
       isLiked: false,
@@ -64,23 +103,26 @@ export const createReel = async (req, res, next) => {
 
 export const toggleReelLike = async (req, res, next) => {
   try {
-    const reel = await Reel.findById(req.params.id);
-    if (!reel) return res.status(404).json({ message: 'Reel not found' });
+    let doc = await Reel.findById(req.params.id);
+    if (!doc) {
+      doc = await Post.findById(req.params.id);
+    }
+    if (!doc) return res.status(404).json({ message: 'Reel not found' });
 
     const userId = req.user._id;
-    const alreadyLiked = reel.likes.some((id) => id.toString() === userId.toString());
+    const alreadyLiked = doc.likes.some((id) => id.toString() === userId.toString());
 
     if (alreadyLiked) {
-      reel.likes.pull(userId);
+      doc.likes.pull(userId);
     } else {
-      reel.likes.addToSet(userId);
+      doc.likes.addToSet(userId);
     }
 
-    await reel.save();
+    await doc.save();
 
     res.json({
       isLiked: !alreadyLiked,
-      likesCount: reel.likes.length,
+      likesCount: doc.likes.length,
     });
   } catch (error) {
     next(error);
@@ -89,18 +131,31 @@ export const toggleReelLike = async (req, res, next) => {
 
 export const deleteReel = async (req, res, next) => {
   try {
-    const reel = await Reel.findById(req.params.id);
-    if (!reel) return res.status(404).json({ message: 'Reel not found' });
+    let isPost = false;
+    let doc = await Reel.findById(req.params.id);
+    if (!doc) {
+      doc = await Post.findById(req.params.id);
+      isPost = Boolean(doc);
+    }
+    if (!doc) return res.status(404).json({ message: 'Reel not found' });
 
-    const isOwner = reel.author.toString() === req.user._id.toString();
+    const isOwner = doc.author.toString() === req.user._id.toString();
     const isAdmin = req.user.role === 'admin';
 
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ message: 'Not authorized to delete this reel' });
     }
 
-    await reel.deleteOne();
-    res.json({ message: 'Reel deleted successfully' });
+    await doc.deleteOne();
+    await Comment.deleteMany({ post: doc._id });
+    if (isPost) {
+      await User.updateMany(
+        { savedPosts: doc._id },
+        { $pull: { savedPosts: doc._id } }
+      );
+    }
+
+    res.json({ success: true, message: 'Reel deleted successfully' });
   } catch (error) {
     next(error);
   }

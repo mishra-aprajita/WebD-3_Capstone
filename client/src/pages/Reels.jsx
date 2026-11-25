@@ -7,16 +7,21 @@ import {
   VolumeX,
   Plus,
   Play,
-  Pause,
   Trash2,
   Music,
   X,
   Send,
   Clapperboard,
+  MoreHorizontal,
+  ChevronUp,
+  ChevronDown,
+  Check,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { reelApi } from '../api/reelApi';
 import { Avatar } from '../components/Avatar';
+import { resolveMediaUrl } from '../utils/mediaUtils';
 
 /* ─────────────────── Helpers ─────────────────── */
 function timeAgo(iso) {
@@ -238,12 +243,18 @@ function CommentDrawer({ reel, onClose }) {
 }
 
 /* ─────────────────── Single Reel Card ─────────────────── */
-function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, currentUser }) {
+function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, onShare, currentUser }) {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [videoError, setVideoError] = useState(false);
-  const isOwner = currentUser?.username === reel.author?.username || currentUser?.role === 'admin';
+  const [copied, setCopied] = useState(false);
+
+  const reelId = reel._id || reel.id;
+  const isOwner =
+    currentUser?.username === reel.author?.username ||
+    currentUser?.role === 'admin';
 
   // Auto-play when this card is in view
   useEffect(() => {
@@ -255,6 +266,7 @@ function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, cur
       video.pause();
       video.currentTime = 0;
       setIsPlaying(false);
+      setShowMenu(false);
     }
   }, [isActive]);
 
@@ -273,113 +285,175 @@ function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, cur
     }
   };
 
+  const handleShareClick = async () => {
+    await onShare(reelId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="relative w-full h-full flex-shrink-0 bg-black snap-start snap-always overflow-hidden">
-      {/* Video or Fallback */}
-      {videoError ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950">
-          <Clapperboard size={48} className="text-neutral-600" />
-          <p className="text-sm text-neutral-500">Video unavailable</p>
+    <div className="w-full h-full flex items-center justify-center bg-black px-2 sm:px-4 py-2 md:py-4">
+      <div className="flex items-end justify-center gap-3 sm:gap-4 h-full max-h-[calc(100vh-9rem)] md:max-h-[88vh] w-full max-w-[500px]">
+        {/* Centered Portrait Reel Video Container */}
+        <div className="relative w-full max-w-[calc(100vw-5rem)] sm:max-w-[420px] h-full aspect-[9/16] rounded-2xl overflow-hidden bg-neutral-950 border border-[#262626] shadow-2xl flex-shrink-1">
+          {/* Video or Fallback */}
+          {videoError ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950">
+              <Clapperboard size={48} className="text-neutral-600" />
+              <p className="text-sm text-neutral-500">Video unavailable</p>
+            </div>
+          ) : (
+            <video
+              ref={videoRef}
+              src={resolveMediaUrl(reel.videoUrl || reel.url)}
+              className="absolute inset-0 w-full h-full object-cover"
+              controls
+              loop
+              playsInline
+              muted={isMuted}
+              onError={() => setVideoError(true)}
+              onClick={handleTap}
+            />
+          )}
+
+          {/* Play/Pause Indicator */}
+          {!isPlaying && !videoError && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-16 h-16 rounded-full bg-black/40 flex items-center justify-center">
+                <Play size={28} className="text-white ml-1" fill="white" />
+              </div>
+            </div>
+          )}
+
+          {/* Top Controls: Mute/Unmute */}
+          <div className="absolute top-3.5 right-3.5 z-10 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={onMuteToggle}
+              className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition"
+              aria-label={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+          </div>
+
+          {/* Bottom Overlay: caption + author */}
+          <div className="absolute bottom-10 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10 pointer-events-none">
+            {/* Author */}
+            <Link
+              to={`/profile/${reel.author?.username}`}
+              className="flex items-center gap-2 mb-2 pointer-events-auto w-fit"
+            >
+              <Avatar
+                src={reel.author?.avatarUrl || reel.author?.avatar}
+                name={reel.author?.name || reel.author?.fullName}
+                username={reel.author?.username}
+                className="w-8 h-8 border border-white/30"
+              />
+              <span className="font-semibold text-white text-sm">@{reel.author?.username}</span>
+            </Link>
+            {/* Caption */}
+            {reel.caption && (
+              <p className="text-sm text-white/90 leading-relaxed line-clamp-2">{reel.caption}</p>
+            )}
+            {/* Audio title */}
+            {reel.audioTitle && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-xs text-white/70">
+                <Music size={12} />
+                <span className="truncate">{reel.audioTitle}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Comments Drawer */}
+          {showComments && (
+            <CommentDrawer reel={reel} onClose={() => setShowComments(false)} />
+          )}
         </div>
-      ) : (
-        <video
-          ref={videoRef}
-          src={reel.videoUrl}
-          className="absolute inset-0 w-full h-full object-cover"
-          loop
-          playsInline
-          muted={isMuted}
-          onError={() => setVideoError(true)}
-          onClick={handleTap}
-        />
-      )}
 
-      {/* Play/Pause Indicator */}
-      {!isPlaying && !videoError && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-16 h-16 rounded-full bg-black/40 flex items-center justify-center">
-            <Play size={28} className="text-white ml-1" fill="white" />
-          </div>
-        </div>
-      )}
-
-      {/* Top Controls */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
-        <button
-          onClick={onMuteToggle}
-          className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition"
-        >
-          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-        </button>
-      </div>
-
-      {/* Bottom Overlay: caption + author */}
-      <div className="absolute bottom-0 left-0 right-16 p-4 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10 pointer-events-none">
-        {/* Author */}
-        <Link
-          to={`/profile/${reel.author?.username}`}
-          className="flex items-center gap-2 mb-2 pointer-events-auto"
-        >
-          <Avatar
-            src={reel.author?.avatarUrl || reel.author?.avatar}
-            name={reel.author?.name || reel.author?.fullName}
-            username={reel.author?.username}
-            className="w-8 h-8 border border-white/30"
-          />
-          <span className="font-semibold text-white text-sm">@{reel.author?.username}</span>
-        </Link>
-        {/* Caption */}
-        {reel.caption && (
-          <p className="text-sm text-white/90 leading-relaxed line-clamp-2">{reel.caption}</p>
-        )}
-        {/* Audio title */}
-        {reel.audioTitle && (
-          <div className="flex items-center gap-1.5 mt-1.5 text-xs text-white/70">
-            <Music size={12} />
-            <span className="truncate">{reel.audioTitle}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Right Side Action Buttons */}
-      <div className="absolute bottom-6 right-3 z-10 flex flex-col items-center gap-5">
-        {/* Like */}
-        <button
-          onClick={() => onLike(reel._id || reel.id)}
-          className="flex flex-col items-center gap-1"
-        >
-          <div className={`w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center transition ${reel.isLiked ? 'text-red-500' : 'text-white'}`}>
-            <Heart size={22} fill={reel.isLiked ? 'currentColor' : 'none'} />
-          </div>
-          <span className="text-xs text-white/90 font-semibold">{reel.likesCount || 0}</span>
-        </button>
-
-        {/* Comment */}
-        <button
-          onClick={() => setShowComments(true)}
-          className="flex flex-col items-center gap-1"
-        >
-          <div className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:text-neutral-200 transition">
-            <MessageCircle size={22} />
-          </div>
-          <span className="text-xs text-white/90 font-semibold">{reel.commentsCount || 0}</span>
-        </button>
-
-        {/* Delete (owner / admin) */}
-        {isOwner && (
+        {/* Right Side Action Column (beside portrait card on #000000) */}
+        <div className="relative z-20 flex flex-col items-center gap-5 pb-3 flex-shrink-0">
+          {/* Like */}
           <button
-            onClick={() => onDelete(reel._id || reel.id)}
-            className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white/60 hover:text-red-400 transition"
+            type="button"
+            onClick={() => onLike(reelId)}
+            className="flex flex-col items-center gap-1 group"
+            aria-label="Like reel"
           >
-            <Trash2 size={18} />
+            <div className={`w-11 h-11 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center transition ${reel.isLiked ? 'text-red-500' : 'text-white'}`}>
+              <Heart size={22} fill={reel.isLiked ? 'currentColor' : 'none'} />
+            </div>
+            <span className="text-xs text-white/90 font-semibold">{reel.likesCount || 0}</span>
           </button>
-        )}
-      </div>
 
-      {/* Comments Drawer */}
-      {showComments && (
-        <CommentDrawer reel={reel} onClose={() => setShowComments(false)} />
-      )}
+          {/* Comment */}
+          <button
+            type="button"
+            onClick={() => setShowComments(true)}
+            className="flex flex-col items-center gap-1 group"
+            aria-label="Comment on reel"
+          >
+            <div className="w-11 h-11 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center text-white transition">
+              <MessageCircle size={22} />
+            </div>
+            <span className="text-xs text-white/90 font-semibold">{reel.commentsCount || 0}</span>
+          </button>
+
+          {/* Share */}
+          <button
+            type="button"
+            onClick={handleShareClick}
+            className="flex flex-col items-center gap-1 group"
+            aria-label="Share reel"
+          >
+            <div className="w-11 h-11 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center text-white transition">
+              {copied ? <Check size={20} className="text-emerald-400" /> : <Send size={20} className="-rotate-12" />}
+            </div>
+            <span className="text-[11px] text-white/80 font-medium">{copied ? 'Copied' : 'Share'}</span>
+          </button>
+
+          {/* More Menu (...) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowMenu(m => !m)}
+              className="w-11 h-11 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center text-white transition"
+              aria-label="Reel options"
+            >
+              <MoreHorizontal size={20} />
+            </button>
+
+            {showMenu && (
+              <div className="absolute right-12 bottom-0 w-44 bg-neutral-900 border border-[#262626] rounded-xl shadow-2xl p-1.5 z-30 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleShareClick();
+                    setShowMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg transition"
+                >
+                  <LinkIcon size={14} />
+                  <span>Copy link</span>
+                </button>
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onDelete(reelId);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition"
+                  >
+                    <Trash2 size={14} />
+                    <span>Delete reel</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -393,6 +467,7 @@ export function Reels() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [shareToast, setShareToast] = useState('');
   const containerRef = useRef(null);
   const observerRef = useRef(null);
 
@@ -451,7 +526,7 @@ export function Reels() {
   }, []);
 
   const handleDelete = useCallback(async (reelId) => {
-    if (!confirm('Delete this reel?')) return;
+    if (!window.confirm('Delete this reel?')) return;
     try {
       await reelApi.deleteReel(reelId);
       setReels(prev => prev.filter(r => (r._id || r.id) !== reelId));
@@ -459,6 +534,27 @@ export function Reels() {
       alert(err.message || 'Failed to delete reel');
     }
   }, []);
+
+  const handleShare = useCallback(async (reelId) => {
+    const shareUrl = `${window.location.origin}/reels?id=${reelId}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+      }
+      setShareToast('Reel link copied to clipboard');
+      setTimeout(() => setShareToast(''), 2200);
+    } catch {
+      setShareToast('Ready to share: ' + shareUrl);
+      setTimeout(() => setShareToast(''), 2500);
+    }
+  }, []);
+
+  const scrollToReel = useCallback((targetIndex) => {
+    if (!containerRef.current) return;
+    const clamped = Math.max(0, Math.min(reels.length - 1, targetIndex));
+    const card = containerRef.current.querySelector(`[data-reel-index="${clamped}"]`);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [reels.length]);
 
   const handleCreated = useCallback((newReel) => {
     setReels(prev => [newReel, ...prev]);
@@ -475,7 +571,7 @@ export function Reels() {
   }
 
   return (
-    <div className="relative h-screen overflow-hidden bg-black">
+    <div className="relative h-[calc(100vh-7.5rem)] md:h-screen overflow-hidden bg-black">
       {/* Reel Feed: vertical scroll snap */}
       <div
         ref={containerRef}
@@ -499,8 +595,7 @@ export function Reels() {
               key={reel._id || reel.id || i}
               data-reel-card
               data-reel-index={i}
-              className="w-full h-full flex-shrink-0"
-              style={{ height: '100vh' }}
+              className="w-full h-full flex-shrink-0 snap-start snap-always"
             >
               <ReelCard
                 reel={reel}
@@ -509,12 +604,44 @@ export function Reels() {
                 onMuteToggle={() => setIsMuted(m => !m)}
                 onLike={handleLike}
                 onDelete={handleDelete}
+                onShare={handleShare}
                 currentUser={currentUser}
               />
             </div>
           ))
         )}
       </div>
+
+      {/* Desktop Next / Prev Navigation */}
+      {reels.length > 1 && (
+        <div className="hidden md:flex flex-col gap-3 absolute right-6 top-1/2 -translate-y-1/2 z-20">
+          <button
+            type="button"
+            onClick={() => scrollToReel(activeIndex - 1)}
+            disabled={activeIndex === 0}
+            className="w-10 h-10 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Previous reel"
+          >
+            <ChevronUp size={20} />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToReel(activeIndex + 1)}
+            disabled={activeIndex === reels.length - 1}
+            className="w-10 h-10 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center text-white transition disabled:opacity-30 disabled:cursor-not-allowed"
+            aria-label="Next reel"
+          >
+            <ChevronDown size={20} />
+          </button>
+        </div>
+      )}
+
+      {/* Share feedback toast */}
+      {shareToast && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-xl bg-neutral-900 border border-[#262626] text-white text-xs font-medium shadow-2xl">
+          {shareToast}
+        </div>
+      )}
 
       {/* Create Reel FAB */}
       <button

@@ -1,10 +1,13 @@
 import express from 'express';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { connectDB } from './config/db.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+import { verifyAccessToken } from './utils/tokenUtils.js';
 
 // Route imports
 import authRoutes from './routes/authRoutes.js';
@@ -15,6 +18,7 @@ import messageRoutes from './routes/messageRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import reelRoutes from './routes/reelRoutes.js';
 import highlightRoutes from './routes/highlightRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 
 dotenv.config();
 
@@ -68,8 +72,9 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/reels', reelRoutes);
 app.use('/api/highlights', highlightRoutes);
+app.use('/api/upload', uploadRoutes);
 
-// Serve uploaded reel videos statically
+// Serve all uploaded files (images, videos, reels) statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Error Handling Middleware
@@ -77,12 +82,43 @@ app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
 
-app.listen(PORT, () => {
+// Attach Socket.io for real-time direct messaging
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
+});
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Unauthorized'));
+    const decoded = verifyAccessToken(token);
+    socket.userId = decoded.userId;
+    next();
+  } catch {
+    next(new Error('Unauthorized'));
+  }
+});
+
+io.on('connection', (socket) => {
+  if (socket.userId) {
+    socket.join(`user:${socket.userId}`);
+  }
+});
+
+app.set('io', io);
+
+server.listen(PORT, () => {
   console.log(`\n==============================================`);
   console.log(`🚀 Snapgram Backend running on port ${PORT}`);
   console.log(`📡 Base API URL: http://localhost:${PORT}/api`);
   console.log(`🌐 CORS enabled for: ${allowedOrigins.join(', ')}`);
+  console.log(`⚡ Socket.io real-time messaging enabled`);
   console.log(`==============================================\n`);
 });
 

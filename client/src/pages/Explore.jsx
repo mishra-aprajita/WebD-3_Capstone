@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, MessageCircle, Compass, TrendingUp } from 'lucide-react';
+import { Heart, MessageCircle, Compass, TrendingUp, Film } from 'lucide-react';
 import { postApi } from '../api/postApi';
 import { useFeed } from '../context/FeedContext';
 import { FALLBACK_IMAGE } from '../mock/mockData';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function Explore() {
   const [explorePosts, setExplorePosts] = useState([]);
@@ -60,14 +61,32 @@ export function Explore() {
               onClick={() => setActiveDetailPost(post)}
               className="relative aspect-square group cursor-pointer overflow-hidden rounded-xl bg-neutral-950 border border-neutral-800"
             >
-              {/* Photo */}
-              <img
-                src={post.imageUrl || FALLBACK_IMAGE}
-                alt={post.caption || 'Explore post'}
-                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                loading="lazy"
-                onError={e => { e.target.src = FALLBACK_IMAGE; }}
-              />
+              {/* Media: Image or Video */}
+              {isVideoMedia(post) ? (
+                <>
+                  <video
+                    src={resolveMediaUrl(post.imageUrl)}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    controls
+                    muted
+                    playsInline
+                    loop
+                    onMouseEnter={(e) => e.target.play().catch(() => {})}
+                    onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
+                  />
+                  <div className="absolute top-2 right-2 z-10 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 pointer-events-none">
+                    <Film size={11} />
+                  </div>
+                </>
+              ) : (
+                <img
+                  src={resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
+                  alt={post.caption || 'Explore post'}
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  loading="lazy"
+                  onError={e => { e.target.src = FALLBACK_IMAGE; }}
+                />
+              )}
 
               {/* Rank Badge on Top 3 */}
               {index < 3 && (

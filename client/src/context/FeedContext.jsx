@@ -47,7 +47,7 @@ export function FeedProvider({ children }) {
   }, [refreshFeed]);
 
   // Create post
-  const createPost = async ({ imageUrl, caption, location }) => {
+  const createPost = async ({ imageUrl, caption, location, mediaType, isReel }) => {
     if (!user) throw new Error('You must be logged in to create a post');
     const newPost = await postApi.createPost({
       author: {
@@ -59,6 +59,8 @@ export function FeedProvider({ children }) {
       imageUrl,
       caption,
       location,
+      mediaType,
+      isReel,
     });
     setPosts(prev => [newPost, ...prev]);
     setIsCreatePostOpen(false);

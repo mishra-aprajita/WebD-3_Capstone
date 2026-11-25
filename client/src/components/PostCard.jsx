@@ -8,12 +8,14 @@ import {
   MoreHorizontal,
   Trash2,
   MapPin,
-  Send
+  Send,
+  Film,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from './Avatar';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function PostCard({ post }) {
   const { user, isAdmin } = useAuth();
@@ -25,7 +27,12 @@ export function PostCard({ post }) {
   const [imgError, setImgError] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const isLiked = (post.likes || []).includes(user?.username);
+  const currentUserId = String(user?._id || user?.id || '');
+  const isLiked = (post.likes || []).some(
+    (id) =>
+      (currentUserId && String(id?._id || id) === currentUserId) ||
+      (user?.username && String(id) === String(user.username))
+  );
   const isSaved = (savedPostIds || []).includes(post.id);
   const isOwner = user?.username === post.author?.username;
   const canDelete = isOwner || isAdmin;
@@ -141,18 +148,37 @@ export function PostCard({ post }) {
         </div>
       </div>
 
-      {/* Post Image Container */}
+      {/* Post Media Container */}
       <div
         className="relative aspect-square w-full bg-black flex items-center justify-center cursor-pointer select-none overflow-hidden rounded-[4px] border border-[#262626]/40"
         onDoubleClick={handleImageDoubleClick}
       >
-        <img
-          src={imgError ? FALLBACK_IMAGE : post.imageUrl}
-          alt={post.caption || 'Snapgram post'}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          onError={() => setImgError(true)}
-        />
+        {isVideoMedia(post) ? (
+          <>
+            <video
+              src={resolveMediaUrl(post.imageUrl)}
+              className="w-full h-full object-cover"
+              loop
+              muted
+              playsInline
+              controls
+              onError={() => setImgError(true)}
+            />
+            {/* Video badge */}
+            <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 pointer-events-none">
+              <Film size={12} />
+              {post.isReel ? 'REEL' : 'VIDEO'}
+            </div>
+          </>
+        ) : (
+          <img
+            src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
+            alt={post.caption || 'Snapgram post'}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        )}
 
         {/* Double-tap Burst Heart Animation */}
         {showHeartBurst && (
@@ -177,7 +203,7 @@ export function PostCard({ post }) {
             >
               <Heart
                 size={24}
-                className={isLiked ? 'text-[#ff3040] fill-[#ff3040]' : 'text-white'}
+                className={isLiked ? 'text-red-500 fill-red-500' : 'text-white'}
               />
             </button>
 

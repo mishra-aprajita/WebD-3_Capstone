@@ -15,6 +15,7 @@ import { useFeed } from '../context/FeedContext';
 import { CommentSection } from './CommentSection';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from './Avatar';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function PostDetailModal() {
   const { user, isAdmin } = useAuth();
@@ -33,7 +34,12 @@ export function PostDetailModal() {
 
   if (!activeDetailPost) return null;
 
-  const isLiked = (activeDetailPost.likes || []).includes(user?.username);
+  const currentUserId = String(user?._id || user?.id || '');
+  const isLiked = (activeDetailPost.likes || []).some(
+    (id) =>
+      (currentUserId && String(id?._id || id) === currentUserId) ||
+      (user?.username && String(id) === String(user.username))
+  );
   const isSaved = (savedPostIds || []).includes(activeDetailPost.id);
   const isOwner = user?.username === activeDetailPost.author?.username;
   const canDelete = isOwner || isAdmin;
@@ -78,14 +84,26 @@ export function PostDetailModal() {
 
       {/* Modal Dialog */}
       <div className="relative z-10 w-full max-w-5xl h-[88vh] bg-black border border-[#262626] rounded-xl overflow-hidden shadow-2xl flex flex-col md:flex-row">
-        {/* Left: Full Post Image */}
+        {/* Left: Full Post Media */}
         <div className="md:w-3/5 bg-black flex items-center justify-center overflow-hidden border-b md:border-b-0 md:border-r border-[#262626]">
-          <img
-            src={imgError ? FALLBACK_IMAGE : activeDetailPost.imageUrl}
-            alt={activeDetailPost.caption || 'Post image'}
-            className="w-full h-full object-contain"
-            onError={() => setImgError(true)}
-          />
+          {isVideoMedia(activeDetailPost) ? (
+            <video
+              src={resolveMediaUrl(activeDetailPost.imageUrl)}
+              className="w-full h-full object-contain"
+              controls
+              loop
+              muted
+              playsInline
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <img
+              src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(activeDetailPost.imageUrl, FALLBACK_IMAGE)}
+              alt={activeDetailPost.caption || 'Post image'}
+              className="w-full h-full object-contain"
+              onError={() => setImgError(true)}
+            />
+          )}
         </div>
 
         {/* Right: Author, Comments, Actions */}
@@ -170,7 +188,7 @@ export function PostDetailModal() {
                 >
                   <Heart
                     size={24}
-                    className={isLiked ? 'text-rose-500 fill-rose-500' : 'text-white'}
+                    className={isLiked ? 'text-red-500 fill-red-500' : 'text-white'}
                   />
                 </button>
                 <button

@@ -9,7 +9,25 @@ const postSchema = new mongoose.Schema(
     },
     imageUrl: {
       type: String,
-      required: [true, 'Image URL is required'],
+      required: [true, 'Media URL is required'],
+    },
+    /**
+     * mediaType: 'image' | 'video'
+     * Derived from the uploaded file mimetype or the URL extension.
+     * Defaults to 'image' for backward-compat with existing posts.
+     */
+    mediaType: {
+      type: String,
+      enum: ['image', 'video'],
+      default: 'image',
+    },
+    /**
+     * isReel: true when user toggled "Post as Reel" during creation,
+     * or when mediaType === 'video'.
+     */
+    isReel: {
+      type: Boolean,
+      default: false,
     },
     caption: {
       type: String,
@@ -33,6 +51,8 @@ const postSchema = new mongoose.Schema(
       transform: (doc, ret) => {
         ret.id = ret._id.toString();
         ret.likesCount = Array.isArray(ret.likes) ? ret.likes.length : 0;
+        // Ensure mediaType always present in serialised output
+        if (!ret.mediaType) ret.mediaType = 'image';
         delete ret.__v;
         return ret;
       },

@@ -3,7 +3,7 @@ import { generateTokens, verifyRefreshToken } from '../utils/tokenUtils.js';
 
 export const register = async (req, res, next) => {
   try {
-    const { username, name, email, password, role = 'user', adminSecret } = req.body;
+    const { username, name, email, password, role = 'user', adminSecret, dob, gender } = req.body;
 
     if (!username || !email || !password) {
       return res.status(400).json({ message: 'Username, email, and password are required' });
@@ -41,6 +41,8 @@ export const register = async (req, res, next) => {
       password,
       role: assignedRole,
       avatarUrl: '',
+      dob: dob?.trim() || '',
+      gender: gender || 'Prefer not to say',
     });
 
     // Save and generate tokens

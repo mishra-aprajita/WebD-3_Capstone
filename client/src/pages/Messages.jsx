@@ -25,7 +25,7 @@ import { Avatar } from '../components/Avatar';
 export function Messages() {
   const { user } = useAuth();
   const { posts, setActiveDetailPost } = useFeed();
-  const { refreshUnreadCount } = useMessages();
+  const { refreshUnreadCount, socket } = useMessages();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [conversations, setConversations] = useState([]);
@@ -105,15 +105,45 @@ export function Messages() {
     }
   }, [selectedUser?.username, loadMessagesWithSelected]);
 
-  // Polling every 4 seconds when chat is open (simulating real-time WebSocket)
+  // Real-time Socket.io listener for incoming & sent messages
   useEffect(() => {
-    if (!selectedUser?.username || !user?.username) return;
+    if (!socket || !user?.username) return;
+
+    const handleNewMessage = (newMsg) => {
+      const partnerName = selectedUser?.username?.toLowerCase();
+      const senderLower = newMsg.sender?.toLowerCase();
+      const receiverLower = newMsg.receiver?.toLowerCase();
+
+      if (partnerName && (senderLower === partnerName || receiverLower === partnerName)) {
+        setMessages((prev) => {
+          const msgId = newMsg.id || newMsg._id;
+          if (prev.some((m) => (m.id || m._id) === msgId)) return prev;
+          return [...prev, newMsg];
+        });
+
+        if (senderLower === partnerName) {
+          messageApi.markAsRead(selectedUser.username, user.username).catch(() => {});
+          refreshUnreadCount();
+        }
+      }
+
+      loadConversations();
+    };
+
+    socket.on('message:new', handleNewMessage);
+    return () => {
+      socket.off('message:new', handleNewMessage);
+    };
+  }, [socket, user?.username, selectedUser?.username, refreshUnreadCount, loadConversations]);
+
+  // Fallback polling every 8 seconds only if Socket.io is not connected
+  useEffect(() => {
+    if (!selectedUser?.username || !user?.username || socket?.connected) return;
 
     const interval = setInterval(async () => {
       try {
         const latestHistory = await messageApi.getMessages(selectedUser.username, user.username);
         setMessages((prev) => {
-          // Only update if count changed or last message changed to avoid unnecessary renders
           if (latestHistory.length !== prev.length) {
             messageApi.markAsRead(selectedUser.username, user.username);
             refreshUnreadCount();
@@ -125,10 +155,10 @@ export function Messages() {
       } catch (e) {
         console.error('Polling error', e);
       }
-    }, 4000);
+    }, 8000);
 
     return () => clearInterval(interval);
-  }, [selectedUser?.username, user?.username, refreshUnreadCount, loadConversations]);
+  }, [selectedUser?.username, user?.username, socket?.connected, refreshUnreadCount, loadConversations]);
 
   // Auto-scroll to bottom of messages container
   useEffect(() => {
@@ -149,7 +179,11 @@ export function Messages() {
         currentUsername: user.username,
       });
 
-      setMessages((prev) => [...prev, newMsg]);
+      setMessages((prev) => {
+        const msgId = newMsg.id || newMsg._id;
+        if (prev.some((m) => (m.id || m._id) === msgId)) return prev;
+        return [...prev, newMsg];
+      });
       await loadConversations();
       refreshUnreadCount();
     } catch (err) {
@@ -174,7 +208,11 @@ export function Messages() {
         currentUsername: user.username,
       });
 
-      setMessages((prev) => [...prev, newMsg]);
+      setMessages((prev) => {
+        const msgId = newMsg.id || newMsg._id;
+        if (prev.some((m) => (m.id || m._id) === msgId)) return prev;
+        return [...prev, newMsg];
+      });
       await loadConversations();
       refreshUnreadCount();
     } catch (err) {
@@ -464,22 +502,29 @@ export function Messages() {
                   </div>
                 ) : messages.length > 0 ? (
                   messages.map((msg) => {
+                    const myId = String(user?._id || user?.id || '');
+                    const msgSenderId = String(msg.sender?._id || msg.senderId || msg.sender || '');
                     const isMe =
-                      msg.sender?.toLowerCase() === user?.username?.toLowerCase();
+                      (myId && msgSenderId === myId) ||
+                      (typeof msg.sender === 'string' &&
+                        msg.sender.toLowerCase() === user?.username?.toLowerCase()) ||
+                      (msg.sender?.username &&
+                        msg.sender.username.toLowerCase() === user?.username?.toLowerCase());
 
                     return (
                       <div
-                        key={msg._id}
-                        className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                        key={msg._id || msg.id}
+                        className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}
                       >
-                        {/* Bubble */}
-                        <div
-                          className={`max-w-[78%] sm:max-w-md rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-md ${
-                            isMe
-                              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-br-xs'
-                              : 'bg-neutral-800 text-neutral-100 rounded-bl-xs border border-neutral-700/40'
-                          }`}
-                        >
+                        <div className={`flex flex-col max-w-[78%] sm:max-w-md ${isMe ? 'items-end' : 'items-start'}`}>
+                          {/* Bubble */}
+                          <div
+                            className={`w-full rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-md ${
+                              isMe
+                                ? 'bg-[#0095f6] text-white rounded-br-xs'
+                                : 'bg-neutral-800 text-neutral-100 rounded-bl-xs border border-neutral-700/40'
+                            }`}
+                          >
                           {/* Shared Post Card Attachment */}
                           {msg.sharedPost && (
                             <div
@@ -524,6 +569,7 @@ export function Messages() {
                               <Check size={12} className="text-neutral-500" />
                             )
                           )}
+                        </div>
                         </div>
                       </div>
                     );

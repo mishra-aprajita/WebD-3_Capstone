@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Grid,
   Bookmark,
-  Star,
   UserPlus,
   UserCheck,
   Heart,
@@ -21,6 +20,7 @@ import {
   Plus,
   Lock,
   UserX,
+  Film,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -31,6 +31,7 @@ import { HighlightViewerModal } from '../components/HighlightViewerModal';
 import { CreateHighlightModal } from '../components/CreateHighlightModal';
 import { Avatar } from '../components/Avatar';
 import { FALLBACK_IMAGE } from '../mock/mockData';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 /* ─────────────────────────────── EditProfileModal ─────────────────────────── */
 function EditProfileModal({ user, onClose, onSave }) {
@@ -444,11 +445,30 @@ export function Profile() {
   const [isCreateHighlightOpen, setIsCreateHighlightOpen] = useState(false);
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [followRequests, setFollowRequests] = useState([]);
 
   const isOwnProfile =
     currentUser?.username?.toLowerCase() === (username || '').toLowerCase();
 
-  const isFollowing = (currentUser?.following || []).includes(username);
+  const currentUserId = String(currentUser?._id || currentUser?.id || '');
+  const profileUserId = String(profileUser?._id || profileUser?.id || '');
+
+  const isFollowing = Boolean(
+    profileUser?.isFollowing ||
+      (currentUser?.following || []).some(
+        (id) =>
+          (profileUserId && String(id?._id || id) === profileUserId) ||
+          (username && String(id).toLowerCase() === username.toLowerCase())
+      )
+  );
+
+  const hasRequested = Boolean(
+    profileUser?.hasRequested ||
+      (currentUserId &&
+        (profileUser?.followRequests || []).some(
+          (id) => String(id?._id || id) === currentUserId
+        ))
+  );
 
   // Load user profile
   useEffect(() => {
@@ -465,7 +485,18 @@ export function Profile() {
       }
     }
     if (username) fetchUser();
-  }, [username, currentUser?.following]);
+  }, [username]);
+
+  // Load incoming follow requests on own profile
+  useEffect(() => {
+    if (!isOwnProfile || !currentUser) {
+      setFollowRequests([]);
+      return;
+    }
+    userApi.getFollowRequests()
+      .then(list => setFollowRequests(Array.isArray(list) ? list : []))
+      .catch(() => setFollowRequests([]));
+  }, [isOwnProfile, currentUser?.username]);
 
   // Load user highlights
   useEffect(() => {
@@ -502,7 +533,43 @@ export function Profile() {
     if (!profileUser) return;
     const result = await toggleFollow(profileUser.username);
     if (result?.targetUser) {
-      setProfileUser(result.targetUser);
+      setProfileUser(prev => ({
+        ...prev,
+        ...result.targetUser,
+        isFollowing: Boolean(result.isFollowing),
+        hasRequested: Boolean(result.hasRequested),
+      }));
+    } else if (result) {
+      setProfileUser(prev =>
+        prev
+          ? {
+              ...prev,
+              isFollowing: result.status === 'following' || Boolean(result.isFollowing),
+              hasRequested: result.status === 'requested' || Boolean(result.hasRequested),
+            }
+          : prev
+      );
+    }
+  };
+
+  const handleAcceptRequest = async (requesterId) => {
+    try {
+      await userApi.acceptFollowRequest(requesterId);
+      setFollowRequests(prev => prev.filter(r => String(r._id || r.id) !== String(requesterId)));
+      setProfileUser(prev =>
+        prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev
+      );
+    } catch (err) {
+      console.error('Failed to accept follow request', err);
+    }
+  };
+
+  const handleDeclineRequest = async (requesterId) => {
+    try {
+      await userApi.declineFollowRequest(requesterId);
+      setFollowRequests(prev => prev.filter(r => String(r._id || r.id) !== String(requesterId)));
+    } catch (err) {
+      console.error('Failed to decline follow request', err);
     }
   };
 
@@ -619,14 +686,7 @@ export function Profile() {
                   >
                     <SettingsIcon size={17} />
                   </Link>
-                  <button
-                    onClick={() => setIsCloseFriendsModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold transition"
-                    title="Manage Close Friends"
-                  >
-                    <Star size={13} fill="currentColor" />
-                    <span>Close Friends ({profileUser.closeFriends?.length || 0})</span>
-                  </button>
+
                 </div>
               ) : (
                 <div className="flex items-center gap-2 relative">
@@ -644,10 +704,12 @@ export function Profile() {
                         className={`px-5 py-1.5 rounded-lg text-sm font-semibold transition ${
                           isFollowing
                             ? 'bg-[#262626] hover:bg-[#363636] text-white'
+                            : hasRequested
+                            ? 'bg-[#262626] hover:bg-[#363636] text-neutral-300'
                             : 'bg-[#0095f6] hover:bg-[#1877f2] text-white'
                         }`}
                       >
-                        {isFollowing ? 'Following' : 'Follow'}
+                        {isFollowing ? 'Following' : hasRequested ? 'Requested' : 'Follow'}
                       </button>
                       <Link
                         to={`/messages?user=${profileUser.username}`}
@@ -816,6 +878,59 @@ export function Profile() {
           )}
         </div>
 
+        {/* Incoming Follow Requests (Private Account Owner) */}
+        {isOwnProfile && followRequests.length > 0 && (
+          <div className="my-5 p-4 rounded-xl bg-[#121212] border border-[#262626] space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">
+                Follow Requests ({followRequests.length})
+              </h3>
+            </div>
+            <div className="space-y-2.5">
+              {followRequests.map((reqUser) => {
+                const reqId = reqUser._id || reqUser.id;
+                return (
+                  <div key={reqId} className="flex items-center justify-between gap-3">
+                    <Link
+                      to={`/profile/${reqUser.username}`}
+                      className="flex items-center gap-3 min-w-0 hover:opacity-80 transition"
+                    >
+                      <Avatar
+                        src={reqUser.avatarUrl || reqUser.avatar}
+                        name={reqUser.name}
+                        username={reqUser.username}
+                        className="w-9 h-9 flex-shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">
+                          {reqUser.username}
+                        </p>
+                        {reqUser.name && (
+                          <p className="text-xs text-neutral-400 truncate">{reqUser.name}</p>
+                        )}
+                      </div>
+                    </Link>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleAcceptRequest(reqId)}
+                        className="px-3.5 py-1.5 rounded-lg bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-semibold transition"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => handleDeclineRequest(reqId)}
+                        className="px-3.5 py-1.5 rounded-lg bg-[#262626] hover:bg-[#363636] text-neutral-200 text-xs font-semibold transition"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Tab Content */}
         <div className="pt-2">
           {profileUser.isPrivate && !isOwnProfile && !isFollowing ? (
@@ -840,12 +955,28 @@ export function Profile() {
                     onClick={() => setActiveDetailPost(post)}
                     className="relative aspect-square group cursor-pointer overflow-hidden rounded-[2px] md:rounded-md bg-black border border-[#262626]/40"
                   >
-                    <img
-                      src={post.imageUrl || FALLBACK_IMAGE}
-                      alt={post.caption || 'Post image'}
-                      className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                      onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
-                    />
+                    {isVideoMedia(post) ? (
+                      <>
+                        <video
+                          src={resolveMediaUrl(post.imageUrl)}
+                          className="w-full h-full object-cover"
+                          controls
+                          loop
+                          muted
+                          playsInline
+                        />
+                        <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 pointer-events-none">
+                          <Film size={11} />
+                        </div>
+                      </>
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
+                        alt={post.caption || 'Post image'}
+                        className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                        onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
+                      />
+                    )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-5 text-white text-sm font-bold pointer-events-none">
                       <div className="flex items-center gap-1.5">
                         <Heart size={18} className="fill-white" />
@@ -892,8 +1023,10 @@ export function Profile() {
                     className="relative aspect-[9/16] group cursor-pointer overflow-hidden rounded-[2px] md:rounded-md bg-black border border-[#262626]/40"
                   >
                     <video
-                      src={reel.videoUrl}
+                      src={resolveMediaUrl(reel.videoUrl || reel.url)}
                       className="w-full h-full object-cover"
+                      controls
+                      loop
                       muted
                       playsInline
                     />
@@ -939,12 +1072,23 @@ export function Profile() {
                     onClick={() => setActiveDetailPost(post)}
                     className="relative aspect-square group cursor-pointer overflow-hidden rounded-[2px] md:rounded-md bg-black border border-[#262626]/40"
                   >
-                    <img
-                      src={post.imageUrl || FALLBACK_IMAGE}
-                      alt={post.caption || 'Saved post'}
-                      className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                      onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
-                    />
+                    {isVideoMedia(post) ? (
+                      <video
+                        src={resolveMediaUrl(post.imageUrl)}
+                        className="w-full h-full object-cover"
+                        controls
+                        loop
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
+                        alt={post.caption || 'Saved post'}
+                        className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                        onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
+                      />
+                    )}
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-5 text-white text-sm font-bold pointer-events-none">
                       <div className="flex items-center gap-1.5">
                         <Heart size={18} className="fill-white" />

@@ -13,6 +13,9 @@ import {
   changePassword,
   getBlockedUsers,
   toggleBlockUser,
+  getFollowRequests,
+  acceptFollowRequest,
+  declineFollowRequest,
 } from '../controllers/userController.js';
 import { protect, authorizeAdmin } from '../middleware/authMiddleware.js';
 
@@ -24,6 +27,10 @@ router.get('/search', searchUsers);
 router.get('/', getAllUsers);
 router.get('/me/blocked', getBlockedUsers);
 router.get('/me/followers', getFollowers);
+router.get('/me/follow-requests', getFollowRequests);
+
+router.post('/follow-requests/:userId/accept', acceptFollowRequest);
+router.post('/follow-requests/:userId/decline', declineFollowRequest);
 
 router.post('/close-friends', toggleCloseFriend);
 router.post('/me/close-friends/:id', toggleCloseFriend);

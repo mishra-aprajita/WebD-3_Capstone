@@ -58,9 +58,24 @@ const userSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    followRequests: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     isPrivate: {
       type: Boolean,
       default: false,
+    },
+    dob: {
+      type: String,
+      default: '',
+    },
+    gender: {
+      type: String,
+      enum: ['Female', 'Male', 'Custom', 'Prefer not to say', 'female', 'male', 'custom', 'prefer not to say', ''],
+      default: 'Prefer not to say',
     },
     refreshToken: {
       type: String,
@@ -77,7 +92,10 @@ const userSchema = new mongoose.Schema(
         ret.avatar = ret.avatarUrl || '';
         ret.fullName = ret.name || '';
         ret.isPrivate = Boolean(ret.isPrivate);
+        ret.dob = ret.dob || '';
+        ret.gender = ret.gender || 'Prefer not to say';
         ret.blockedUsers = (ret.blockedUsers || []).map(b => (b?._id ? b._id.toString() : b.toString()));
+        ret.followRequests = (ret.followRequests || []).map(r => (r?._id ? r._id.toString() : r.toString()));
         delete ret.password;
         delete ret.__v;
         return ret;

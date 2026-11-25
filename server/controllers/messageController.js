@@ -108,6 +108,8 @@ export const getMessagesWithUser = async (req, res, next) => {
       text: msg.text,
       sender: msg.sender.username,
       receiver: msg.receiver.username,
+      senderId: msg.sender._id.toString(),
+      receiverId: msg.receiver._id.toString(),
       senderUser: {
         id: msg.sender._id.toString(),
         username: msg.sender.username,
@@ -189,12 +191,14 @@ export const sendMessage = async (req, res, next) => {
       });
     }
 
-    res.status(201).json({
+    const payload = {
       id: message._id.toString(),
       _id: message._id.toString(),
       text: message.text,
       sender: message.sender.username,
       receiver: message.receiver.username,
+      senderId: message.sender._id.toString(),
+      receiverId: message.receiver._id.toString(),
       sharedPost: message.sharedPost
         ? {
             id: message.sharedPost._id.toString(),
@@ -205,7 +209,16 @@ export const sendMessage = async (req, res, next) => {
         : null,
       isRead: message.isRead,
       createdAt: message.createdAt,
-    });
+    };
+
+    // Emit real-time Socket.io event to recipient and sender rooms
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${targetUserId.toString()}`).emit('message:new', payload);
+      io.to(`user:${currentUserId.toString()}`).emit('message:new', payload);
+    }
+
+    res.status(201).json(payload);
   } catch (error) {
     next(error);
   }
@@ -227,6 +240,13 @@ export const markAsRead = async (req, res, next) => {
       { sender: senderUserId, receiver: currentUserId, isRead: false },
       { $set: { isRead: true } }
     );
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${senderUserId.toString()}`).emit('message:read', {
+        by: req.user.username,
+      });
+    }
 
     res.json({ success: true, message: 'Messages marked as read' });
   } catch (error) {

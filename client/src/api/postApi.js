@@ -69,12 +69,12 @@ export const postApi = {
    * Create a new post
    * Express Route: POST /api/posts
    */
-  async createPost({ author, imageUrl, caption, location }) {
+  async createPost({ author, imageUrl, caption, location, mediaType, isReel }) {
     return apiClient('/posts', {
       method: 'POST',
-      body: JSON.stringify({ author, imageUrl, caption, location }),
+      body: JSON.stringify({ author, imageUrl, caption, location, mediaType, isReel }),
       fallbackHandler: async () => {
-        return createMockPost({ author, imageUrl, caption, location });
+        return createMockPost({ author, imageUrl, caption, location, mediaType, isReel });
       }
     });
   },

@@ -151,15 +151,28 @@ export const getExplore = async (req, res, next) => {
  */
 export const createPost = async (req, res, next) => {
   try {
-    const { imageUrl, caption = '', location = '' } = req.body;
+    const { imageUrl, caption = '', location = '', mediaType, isReel } = req.body;
 
     if (!imageUrl) {
-      return res.status(400).json({ message: 'Image URL is required' });
+      return res.status(400).json({ message: 'Media URL is required' });
     }
+
+    // Derive mediaType: use explicit value from body, else infer from URL
+    let resolvedMediaType = mediaType || 'image';
+    if (!mediaType) {
+      const lower = imageUrl.toLowerCase();
+      if (lower.match(/\.(mp4|mov|webm)(\?|$)/)) resolvedMediaType = 'video';
+    }
+
+    // isReel is true when explicitly set OR when it's a video
+    const resolvedIsReel =
+      isReel === true || isReel === 'true' || resolvedMediaType === 'video';
 
     const newPost = new Post({
       author: req.user._id,
       imageUrl,
+      mediaType: resolvedMediaType,
+      isReel: resolvedIsReel,
       caption,
       location,
       likes: [],
@@ -170,6 +183,25 @@ export const createPost = async (req, res, next) => {
 
     const formatted = await populatePostDetails(newPost);
     res.status(201).json(formatted);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/posts/reels — All video/reel posts sorted by newest
+ */
+export const getReelPosts = async (req, res, next) => {
+  try {
+    const posts = await Post.find({
+      $or: [{ mediaType: 'video' }, { isReel: true }],
+    })
+      .populate('author', 'username name avatarUrl')
+      .sort({ createdAt: -1 })
+      .limit(60);
+
+    const populatedPosts = await Promise.all(posts.map(populatePostDetails));
+    res.json(populatedPosts);
   } catch (error) {
     next(error);
   }

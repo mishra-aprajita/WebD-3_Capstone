@@ -107,6 +107,11 @@ export const getUserProfile = async (req, res, next) => {
     });
     const isFollowing = Boolean(followRecord);
 
+    // Has current user sent a pending follow request to target user?
+    const hasRequested = (targetUser.followRequests || []).some(
+      id => String(id?._id || id) === String(currentUserId)
+    );
+
     // Is current user in target user's close friends?
     const isCloseFriend = (targetUser.closeFriends || []).some(
       f => f._id.toString() === currentUserId.toString()
@@ -156,6 +161,7 @@ export const getUserProfile = async (req, res, next) => {
       followingCount,
       postsCount: formattedPosts.length,
       isFollowing,
+      hasRequested,
       isCloseFriend,
       isBlocked,
       hasBlockedViewer,
@@ -364,9 +370,27 @@ export const toggleFollow = async (req, res, next) => {
     });
 
     let isFollowing = false;
+    let hasRequested = false;
+    let status = 'unfollowed';
+
     if (existingFollow) {
       await Follow.findByIdAndDelete(existingFollow._id);
       isFollowing = false;
+      status = 'unfollowed';
+    } else if (targetUser.isPrivate) {
+      const alreadyRequested = (targetUser.followRequests || []).some(
+        id => String(id?._id || id) === String(req.user._id)
+      );
+      if (alreadyRequested) {
+        targetUser.followRequests.pull(req.user._id);
+        hasRequested = false;
+        status = 'unfollowed';
+      } else {
+        targetUser.followRequests.addToSet(req.user._id);
+        hasRequested = true;
+        status = 'requested';
+      }
+      await targetUser.save();
     } else {
       const follow = new Follow({
         follower: req.user._id,
@@ -374,6 +398,7 @@ export const toggleFollow = async (req, res, next) => {
       });
       await follow.save();
       isFollowing = true;
+      status = 'following';
     }
 
     const targetFollowersCount = await Follow.countDocuments({ following: targetUser._id });
@@ -381,17 +406,84 @@ export const toggleFollow = async (req, res, next) => {
     const currentUserFollowingCount = await Follow.countDocuments({ follower: req.user._id });
 
     res.json({
+      status,
       isFollowing,
+      hasRequested,
       targetUser: {
         ...targetUser.toJSON(),
         followersCount: targetFollowersCount,
         followingCount: targetFollowingCount,
+        isFollowing,
+        hasRequested,
       },
       currentUser: {
         ...req.user.toJSON(),
         followingCount: currentUserFollowingCount,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getFollowRequests = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user._id).populate(
+      'followRequests',
+      'username name avatarUrl bio'
+    );
+    const list = (user?.followRequests || []).map(u => ({
+      id: u._id.toString(),
+      _id: u._id.toString(),
+      username: u.username,
+      name: u.name || u.username,
+      avatar: u.avatarUrl || '',
+      avatarUrl: u.avatarUrl || '',
+      bio: u.bio || '',
+    }));
+    res.json(list);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const acceptFollowRequest = async (req, res, next) => {
+  try {
+    const requesterId = req.params.userId;
+    const currentUser = await User.findById(req.user._id);
+    if (!currentUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    currentUser.followRequests.pull(requesterId);
+    await currentUser.save();
+
+    const existing = await Follow.findOne({
+      follower: requesterId,
+      following: currentUser._id,
+    });
+    if (!existing) {
+      await Follow.create({ follower: requesterId, following: currentUser._id });
+    }
+
+    res.json({ success: true, message: 'Follow request accepted' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const declineFollowRequest = async (req, res, next) => {
+  try {
+    const requesterId = req.params.userId;
+    const currentUser = await User.findById(req.user._id);
+    if (!currentUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    currentUser.followRequests.pull(requesterId);
+    await currentUser.save();
+
+    res.json({ success: true, message: 'Follow request declined' });
   } catch (error) {
     next(error);
   }
