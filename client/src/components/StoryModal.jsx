@@ -3,6 +3,7 @@ import { X, ChevronLeft, ChevronRight, Star, Pause, Play } from 'lucide-react';
 import { useFeed } from '../context/FeedContext';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from './Avatar';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 const STORY_DURATION_MS = 5000;
 
@@ -115,14 +116,25 @@ export function StoryModal() {
         onTouchStart={() => setIsPaused(true)}
         onTouchEnd={() => setIsPaused(false)}
       >
-        {/* Story Background Image */}
+        {/* Story Background Media (Image or Video) */}
         <div className="absolute inset-0 z-0 bg-neutral-950 flex items-center justify-center">
-          <img
-            src={currentStory.imageUrl || FALLBACK_IMAGE}
-            alt={currentStory.caption || 'Story'}
-            className="w-full h-full object-cover"
-            onError={e => { e.target.src = FALLBACK_IMAGE; }}
-          />
+          {isVideoMedia(currentStory) ? (
+            <video
+              src={resolveMediaUrl(currentStory.imageUrl || currentStory.mediaUrl)}
+              className="w-full h-full object-cover"
+              autoPlay
+              loop
+              muted
+              playsInline
+            />
+          ) : (
+            <img
+              src={resolveMediaUrl(currentStory.imageUrl || currentStory.mediaUrl, FALLBACK_IMAGE)}
+              alt={currentStory.caption || 'Story'}
+              className="w-full h-full object-cover"
+              onError={e => { e.target.src = FALLBACK_IMAGE; }}
+            />
+          )}
           {/* Subtle gradient vignette */}
           <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none" />
         </div>

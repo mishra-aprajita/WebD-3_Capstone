@@ -26,12 +26,12 @@ export const storyApi = {
    * Create a new story (24-hour expiry)
    * Express Route: POST /api/stories
    */
-  async createStory({ author, imageUrl, caption, isCloseFriendsOnly = false }) {
+  async createStory({ author, imageUrl, mediaType = 'image', caption, isCloseFriendsOnly = false }) {
     return apiClient('/stories', {
       method: 'POST',
-      body: JSON.stringify({ author, imageUrl, caption, isCloseFriendsOnly }),
+      body: JSON.stringify({ author, imageUrl, mediaType, caption, isCloseFriendsOnly }),
       fallbackHandler: async () => {
-        return createMockStory({ author, imageUrl, caption, isCloseFriendsOnly });
+        return createMockStory({ author, imageUrl, mediaType, caption, isCloseFriendsOnly });
       }
     });
   },

@@ -5,6 +5,7 @@ import { storyApi } from '../api/storyApi';
 import { useAuth } from '../context/AuthContext';
 import { CreateHighlightModal } from '../components/CreateHighlightModal';
 import { StoryModal } from '../components/StoryModal';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function Archive() {
   const { user } = useAuth();
@@ -91,11 +92,21 @@ export function Archive() {
                 onClick={() => setSelectedPreviewStory(story)}
                 className="relative aspect-[9/16] rounded-xl overflow-hidden cursor-pointer group border border-neutral-800 hover:border-neutral-700 transition"
               >
-                <img
-                  src={mediaUrl}
-                  alt={story.caption || 'Archived story'}
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                />
+                {isVideoMedia(story) ? (
+                  <video
+                    src={resolveMediaUrl(mediaUrl)}
+                    className="w-full h-full object-cover"
+                    muted
+                    playsInline
+                    loop
+                  />
+                ) : (
+                  <img
+                    src={resolveMediaUrl(mediaUrl)}
+                    alt={story.caption || 'Archived story'}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition p-2 flex flex-col justify-end">
                   <span className="text-[11px] text-white font-medium truncate">
                     {story.caption || 'Story'}
@@ -126,11 +137,23 @@ export function Archive() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative aspect-[9/16]">
-              <img
-                src={selectedPreviewStory.mediaUrl || selectedPreviewStory.imageUrl}
-                alt="Story preview"
-                className="w-full h-full object-cover"
-              />
+              {isVideoMedia(selectedPreviewStory) ? (
+                <video
+                  src={resolveMediaUrl(selectedPreviewStory.mediaUrl || selectedPreviewStory.imageUrl)}
+                  className="w-full h-full object-cover"
+                  controls
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={resolveMediaUrl(selectedPreviewStory.mediaUrl || selectedPreviewStory.imageUrl)}
+                  alt="Story preview"
+                  className="w-full h-full object-cover"
+                />
+              )}
               <div className="absolute top-4 left-4 right-4 flex items-center justify-between text-white drop-shadow">
                 <span className="text-xs font-semibold bg-black/50 px-2.5 py-1 rounded-full backdrop-blur-sm">
                   {selectedPreviewStory.createdAt

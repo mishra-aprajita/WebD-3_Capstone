@@ -109,7 +109,7 @@ export function FeedProvider({ children }) {
   };
 
   // Create Story
-  const createStory = async ({ imageUrl, caption, isCloseFriendsOnly }) => {
+  const createStory = async ({ imageUrl, mediaType = 'image', caption, isCloseFriendsOnly }) => {
     if (!user) throw new Error('You must be logged in to share a story');
     const newStory = await storyApi.createStory({
       author: {
@@ -120,6 +120,7 @@ export function FeedProvider({ children }) {
         closeFriends: user.closeFriends || [],
       },
       imageUrl,
+      mediaType,
       caption,
       isCloseFriendsOnly: Boolean(isCloseFriendsOnly),
     });
