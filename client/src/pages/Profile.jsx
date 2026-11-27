@@ -21,6 +21,7 @@ import {
   Lock,
   UserX,
   Film,
+  Repeat2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -863,6 +864,18 @@ export function Profile() {
             <span>Reels</span>
           </button>
 
+          <button
+            onClick={() => setActiveTab('reposts')}
+            className={`flex items-center gap-2 py-4 px-6 border-t transition ${
+              activeTab === 'reposts'
+                ? 'border-white text-white'
+                : 'border-transparent text-neutral-500 hover:text-neutral-300'
+            }`}
+          >
+            <Repeat2 size={15} />
+            <span>Reposts</span>
+          </button>
+
           {isOwnProfile && (
             <button
               onClick={() => setActiveTab('saved')}
@@ -1058,6 +1071,61 @@ export function Profile() {
                     Create your first reel
                   </Link>
                 )}
+              </div>
+            )
+          )}
+
+          {/* Reposts Tab */}
+          {activeTab === 'reposts' && (
+            (profileUser.repostedPosts || []).length > 0 ? (
+              <div className="grid grid-cols-3 gap-1 md:gap-4">
+                {profileUser.repostedPosts.map((post) => (
+                  <div
+                    key={post.id}
+                    onClick={() => setActiveDetailPost(post)}
+                    className="relative aspect-square group cursor-pointer overflow-hidden rounded-[2px] md:rounded-md bg-black border border-[#262626]/40"
+                  >
+                    {isVideoMedia(post) ? (
+                      <video
+                        src={resolveMediaUrl(post.imageUrl)}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                        loop
+                      />
+                    ) : (
+                      <img
+                        src={resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
+                        alt={post.caption || 'Reposted post'}
+                        className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
+                        onError={(e) => { e.target.src = FALLBACK_IMAGE; }}
+                      />
+                    )}
+                    <div className="absolute top-2 left-2 bg-black/60 text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 pointer-events-none">
+                      <Repeat2 size={11} />
+                    </div>
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-5 text-white text-sm font-bold pointer-events-none">
+                      <div className="flex items-center gap-1.5">
+                        <Heart size={18} className="fill-white" />
+                        <span>{post.likesCount || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <MessageCircle size={18} className="fill-white" />
+                        <span>{post.comments?.length || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-20 text-center flex flex-col items-center justify-center space-y-3">
+                <div className="w-16 h-16 rounded-full border-2 border-neutral-700 flex items-center justify-center text-neutral-300">
+                  <Repeat2 size={30} />
+                </div>
+                <h3 className="text-xl font-bold text-white">No Reposts Yet</h3>
+                <p className="text-sm text-neutral-400 max-w-xs">
+                  Posts and reels reposted by @{profileUser.username} will appear here.
+                </p>
               </div>
             )
           )}

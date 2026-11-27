@@ -17,11 +17,15 @@ import {
   ChevronDown,
   Check,
   Link as LinkIcon,
+  Repeat2,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useFeed } from '../context/FeedContext';
 import { reelApi } from '../api/reelApi';
 import { Avatar } from '../components/Avatar';
 import { resolveMediaUrl } from '../utils/mediaUtils';
+import { EmojiPickerButton } from '../components/EmojiPickerButton';
 
 /* ─────────────────── Helpers ─────────────────── */
 function timeAgo(iso) {
@@ -185,6 +189,7 @@ function CreateReelModal({ onClose, onCreated }) {
 /* ─────────────────── Comment Drawer ─────────────────── */
 function CommentDrawer({ reel, onClose }) {
   const [text, setText] = useState('');
+  const inputRef = useRef(null);
   const [comments, setComments] = useState([
     { id: 'c1', username: 'alex_creator', text: '🔥 Amazing reel!' },
     { id: 'c2', username: 'mia_traveler', text: 'Love this! Where was this shot?' },
@@ -225,8 +230,10 @@ function CommentDrawer({ reel, onClose }) {
             </li>
           ))}
         </ul>
-        <form onSubmit={handleSend} className="flex gap-3 px-4 py-3 border-t border-neutral-800">
+        <form onSubmit={handleSend} className="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+          <EmojiPickerButton inputRef={inputRef} value={text} onChange={setText} />
           <input
+            ref={inputRef}
             type="text"
             value={text}
             onChange={e => setText(e.target.value)}
@@ -243,7 +250,7 @@ function CommentDrawer({ reel, onClose }) {
 }
 
 /* ─────────────────── Single Reel Card ─────────────────── */
-function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, onShare, currentUser }) {
+function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onRepost, onDelete, onShare, onShareToStory, currentUser }) {
   const videoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -399,6 +406,20 @@ function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, onS
             <span className="text-xs text-white/90 font-semibold">{reel.commentsCount || 0}</span>
           </button>
 
+          {/* Repost */}
+          <button
+            type="button"
+            onClick={() => onRepost(reelId)}
+            className="flex flex-col items-center gap-1 group"
+            aria-label="Repost reel"
+            title="Repost"
+          >
+            <div className={`w-11 h-11 rounded-full bg-[#1a1a1a] hover:bg-[#262626] border border-[#262626] flex items-center justify-center transition ${reel.isReposted ? 'text-emerald-400' : 'text-white'}`}>
+              <Repeat2 size={21} />
+            </div>
+            <span className="text-xs text-white/90 font-semibold">{reel.repostCount || 0}</span>
+          </button>
+
           {/* Share */}
           <button
             type="button"
@@ -425,6 +446,17 @@ function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, onS
 
             {showMenu && (
               <div className="absolute right-12 bottom-0 w-44 bg-neutral-900 border border-[#262626] rounded-xl shadow-2xl p-1.5 z-30 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onShareToStory(reel);
+                    setShowMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg transition"
+                >
+                  <Sparkles size={14} className="text-emerald-400" />
+                  <span>Share to Story</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -461,6 +493,7 @@ function ReelCard({ reel, isActive, isMuted, onMuteToggle, onLike, onDelete, onS
 /* ─────────────────── Main Reels Page ─────────────────── */
 export function Reels() {
   const { user: currentUser } = useAuth();
+  const { createStory } = useFeed();
   const location = useLocation();
   const [reels, setReels] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -535,6 +568,47 @@ export function Reels() {
     }
   }, []);
 
+  const handleRepost = useCallback(async (reelId) => {
+    setReels(prev =>
+      prev.map(r => {
+        if ((r._id || r.id) === reelId) {
+          const wasReposted = Boolean(r.isReposted);
+          return {
+            ...r,
+            isReposted: !wasReposted,
+            repostCount: Math.max(0, (r.repostCount || 0) + (wasReposted ? -1 : 1)),
+          };
+        }
+        return r;
+      })
+    );
+    try {
+      const res = await reelApi.toggleRepost(reelId);
+      setReels(prev =>
+        prev.map(r =>
+          (r._id || r.id) === reelId
+            ? { ...r, isReposted: res.isReposted, repostCount: res.repostCount }
+            : r
+        )
+      );
+    } catch { /* optimistic already applied */ }
+  }, []);
+
+  const handleShareToStory = useCallback(async (reel) => {
+    try {
+      await createStory({
+        imageUrl: reel.videoUrl || reel.url,
+        mediaType: 'video',
+        caption: reel.caption ? `Shared @${reel.author?.username}'s reel` : '',
+      });
+      setShareToast('Reel shared to your Story!');
+      setTimeout(() => setShareToast(''), 2200);
+    } catch (err) {
+      setShareToast(err.message || 'Could not share to story');
+      setTimeout(() => setShareToast(''), 2200);
+    }
+  }, [createStory]);
+
   const handleShare = useCallback(async (reelId) => {
     const shareUrl = `${window.location.origin}/reels?id=${reelId}`;
     try {
@@ -603,8 +677,10 @@ export function Reels() {
                 isMuted={isMuted}
                 onMuteToggle={() => setIsMuted(m => !m)}
                 onLike={handleLike}
+                onRepost={handleRepost}
                 onDelete={handleDelete}
                 onShare={handleShare}
+                onShareToStory={handleShareToStory}
                 currentUser={currentUser}
               />
             </div>

@@ -16,6 +16,9 @@ import {
   getFollowRequests,
   acceptFollowRequest,
   declineFollowRequest,
+  getRecentlyDeleted,
+  restoreRecentlyDeleted,
+  permanentDeleteRecentlyDeleted,
 } from '../controllers/userController.js';
 import { protect, authorizeAdmin } from '../middleware/authMiddleware.js';
 
@@ -28,6 +31,10 @@ router.get('/', getAllUsers);
 router.get('/me/blocked', getBlockedUsers);
 router.get('/me/followers', getFollowers);
 router.get('/me/follow-requests', getFollowRequests);
+
+router.get('/recently-deleted', getRecentlyDeleted);
+router.patch('/recently-deleted/:type/:id/restore', restoreRecentlyDeleted);
+router.delete('/recently-deleted/:type/:id/permanent', permanentDeleteRecentlyDeleted);
 
 router.post('/follow-requests/:userId/accept', acceptFollowRequest);
 router.post('/follow-requests/:userId/decline', declineFollowRequest);

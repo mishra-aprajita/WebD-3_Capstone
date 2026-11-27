@@ -1,7 +1,9 @@
+import mongoose from 'mongoose';
 import { Post } from '../models/Post.js';
 import { Comment } from '../models/Comment.js';
 import { Follow } from '../models/Follow.js';
 import { User } from '../models/User.js';
+import { createAndEmitNotification } from '../utils/notificationHelper.js';
 
 // Helper to attach populated comments and formatted author to post docs
 const populatePostDetails = async (postDoc) => {
@@ -66,23 +68,45 @@ export const getFeed = async (req, res, next) => {
     );
 
     let posts = await Post.find({
-      author: { $in: targetUserIds, $nin: excludedIds },
+      isDeleted: { $ne: true },
+      $or: [
+        { author: { $in: targetUserIds, $nin: excludedIds } },
+        { reposts: { $in: followingIds }, author: { $nin: excludedIds } },
+      ],
     })
       .populate('author', 'username name avatarUrl')
+      .populate('reposts', 'username')
       .sort({ createdAt: -1 })
       .limit(50);
 
     // Fallback: If no posts from followed or self, return latest global posts excluding blocked
     if (posts.length === 0) {
       posts = await Post.find({
+        isDeleted: { $ne: true },
         author: { $nin: excludedIds },
       })
         .populate('author', 'username name avatarUrl')
+        .populate('reposts', 'username')
         .sort({ createdAt: -1 })
         .limit(50);
     }
 
-    const populatedPosts = await Promise.all(posts.map(populatePostDetails));
+    const followingSet = new Set(followingIds.map((id) => String(id)));
+    const populatedPosts = await Promise.all(
+      posts.map(async (p) => {
+        const detailed = await populatePostDetails(p);
+        const authorIdStr = String(p.author?._id || p.author);
+        const isOwnOrFollowedAuthor =
+          authorIdStr === String(currentUserId) || followingSet.has(authorIdStr);
+        if (!isOwnOrFollowedAuthor && Array.isArray(p.reposts)) {
+          const reposter = p.reposts.find((r) => followingSet.has(String(r?._id || r)));
+          if (reposter?.username) {
+            detailed.repostedBy = reposter.username;
+          }
+        }
+        return detailed;
+      })
+    );
     res.json(populatedPosts);
   } catch (error) {
     next(error);
@@ -106,9 +130,12 @@ export const getExplore = async (req, res, next) => {
     }
 
     const posts = await Post.aggregate([
-      ...(excludedObjectIds.length > 0
-        ? [{ $match: { author: { $nin: excludedObjectIds } } }]
-        : []),
+      {
+        $match: {
+          isDeleted: { $ne: true },
+          ...(excludedObjectIds.length > 0 ? { author: { $nin: excludedObjectIds } } : {}),
+        },
+      },
       {
         $addFields: {
           likesCount: {
@@ -194,6 +221,7 @@ export const createPost = async (req, res, next) => {
 export const getReelPosts = async (req, res, next) => {
   try {
     const posts = await Post.find({
+      isDeleted: { $ne: true },
       $or: [{ mediaType: 'video' }, { isReel: true }],
     })
       .populate('author', 'username name avatarUrl')
@@ -212,7 +240,13 @@ export const getReelPosts = async (req, res, next) => {
  */
 export const getPostById = async (req, res, next) => {
   try {
-    const post = await Post.findById(req.params.id).populate('author', 'username name avatarUrl');
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid post ID' });
+    }
+    const post = await Post.findOne({ _id: req.params.id, isDeleted: { $ne: true } }).populate(
+      'author',
+      'username name avatarUrl'
+    );
 
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
@@ -226,10 +260,13 @@ export const getPostById = async (req, res, next) => {
 };
 
 /**
- * Delete post: Allowed for author or admin
+ * Soft-delete post: Allowed for author or admin (moves to Recently Deleted)
  */
 export const deletePost = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid post ID' });
+    }
     const post = await Post.findById(req.params.id);
 
     if (!post) {
@@ -243,16 +280,11 @@ export const deletePost = async (req, res, next) => {
       return res.status(403).json({ message: 'Forbidden: You cannot delete this post' });
     }
 
-    await Post.findByIdAndDelete(post._id);
-    await Comment.deleteMany({ post: post._id });
+    post.isDeleted = true;
+    post.deletedAt = new Date();
+    await post.save();
 
-    // Clean up from user savedPosts
-    await User.updateMany(
-      { savedPosts: post._id },
-      { $pull: { savedPosts: post._id } }
-    );
-
-    res.json({ success: true, message: 'Post deleted successfully' });
+    res.json({ success: true, message: 'Post moved to Recently Deleted' });
   } catch (error) {
     next(error);
   }
@@ -263,7 +295,10 @@ export const deletePost = async (req, res, next) => {
  */
 export const toggleLike = async (req, res, next) => {
   try {
-    const post = await Post.findById(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid post ID' });
+    }
+    const post = await Post.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
 
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
@@ -281,8 +316,65 @@ export const toggleLike = async (req, res, next) => {
     await post.save();
     await post.populate('author', 'username name avatarUrl');
 
+    if (!hasLiked) {
+      await createAndEmitNotification({
+        app: req.app,
+        recipientId: post.author._id || post.author,
+        actorId: userId,
+        type: 'like',
+        postId: post._id,
+      });
+    }
+
     const formatted = await populatePostDetails(post);
     res.json(formatted);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Toggle repost on post ($addToSet / $pull)
+ */
+export const toggleRepost = async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid post ID' });
+    }
+    const post = await Post.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    const userId = req.user._id;
+    const hasReposted = (post.reposts || []).some(id => id.toString() === userId.toString());
+
+    if (hasReposted) {
+      post.reposts.pull(userId);
+    } else {
+      post.reposts.addToSet(userId);
+    }
+
+    await post.save();
+    await post.populate('author', 'username name avatarUrl');
+
+    if (!hasReposted) {
+      await createAndEmitNotification({
+        app: req.app,
+        recipientId: post.author._id || post.author,
+        actorId: userId,
+        type: 'repost',
+        postId: post._id,
+      });
+    }
+
+    const formatted = await populatePostDetails(post);
+    res.json({
+      ...formatted,
+      isReposted: !hasReposted,
+      repostCount: post.reposts.length,
+    });
   } catch (error) {
     next(error);
   }
@@ -324,7 +416,9 @@ export const getSavedPosts = async (req, res, next) => {
     });
 
     const populatedSaved = await Promise.all(
-      (user.savedPosts || []).filter(Boolean).map(populatePostDetails)
+      (user.savedPosts || [])
+        .filter((p) => p && !p.isDeleted)
+        .map(populatePostDetails)
     );
 
     res.json(populatedSaved);
@@ -397,6 +491,15 @@ export const addComment = async (req, res, next) => {
 
     await comment.save();
     await post.populate('author', 'username name avatarUrl');
+
+    await createAndEmitNotification({
+      app: req.app,
+      recipientId: post.author._id || post.author,
+      actorId: req.user._id,
+      type: 'comment',
+      postId: post._id,
+      text: text.trim().slice(0, 80),
+    });
 
     const formatted = await populatePostDetails(post);
     res.status(201).json(formatted);

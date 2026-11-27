@@ -94,6 +94,17 @@ export const postApi = {
   },
 
   /**
+   * Toggle repost on post
+   * Express Route: POST /api/posts/:id/repost
+   */
+  async toggleRepost(postId) {
+    return apiClient(`/posts/${postId}/repost`, {
+      method: 'POST',
+      fallbackHandler: async () => ({ isReposted: true, repostCount: 1 }),
+    });
+  },
+
+  /**
    * Add a comment to a post
    * Express Route: POST /api/posts/:id/comments
    */

@@ -4,6 +4,7 @@ import { MessageCircle } from 'lucide-react';
 import { AuthProvider } from './context/AuthContext';
 import { FeedProvider } from './context/FeedContext';
 import { MessageProvider, useMessages } from './context/MessageContext';
+import { NotificationProvider } from './context/NotificationContext';
 import { Navbar } from './components/Navbar';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
@@ -18,6 +19,7 @@ import { Explore } from './pages/Explore';
 import { Profile } from './pages/Profile';
 import { Messages } from './pages/Messages';
 import { Reels } from './pages/Reels';
+import { Notifications } from './pages/Notifications';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -82,6 +84,7 @@ export default function App() {
       <AuthProvider>
         <FeedProvider>
           <MessageProvider>
+            <NotificationProvider>
             <MainLayout>
               <Routes>
                 {/* Public Auth Routes */}
@@ -130,6 +133,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <Notifications />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/archive"
                   element={
                     <ProtectedRoute>
@@ -160,6 +171,7 @@ export default function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </MainLayout>
+            </NotificationProvider>
           </MessageProvider>
         </FeedProvider>
       </AuthProvider>

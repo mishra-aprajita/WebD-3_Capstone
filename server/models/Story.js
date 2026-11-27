@@ -20,6 +20,15 @@ const storySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
     // MongoDB 24-hour TTL index (86400 seconds)
     createdAt: {
       type: Date,

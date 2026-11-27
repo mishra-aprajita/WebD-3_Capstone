@@ -242,4 +242,37 @@ export const userApi = {
       fallbackHandler: async () => ({ success: true }),
     });
   },
+
+  /**
+   * Get recently deleted posts, stories, and reels
+   * Express Route: GET /api/users/recently-deleted
+   */
+  async getRecentlyDeleted() {
+    return apiClient('/users/recently-deleted', {
+      method: 'GET',
+      fallbackHandler: async () => ({ posts: [], stories: [], reels: [] }),
+    });
+  },
+
+  /**
+   * Restore a soft-deleted post, story, or reel
+   * Express Route: PATCH /api/users/recently-deleted/:type/:id/restore
+   */
+  async restoreRecentlyDeleted(type, id) {
+    return apiClient(`/users/recently-deleted/${type}/${id}/restore`, {
+      method: 'PATCH',
+      fallbackHandler: async () => ({ success: true }),
+    });
+  },
+
+  /**
+   * Permanently delete a soft-deleted post, story, or reel
+   * Express Route: DELETE /api/users/recently-deleted/:type/:id/permanent
+   */
+  async permanentDeleteRecentlyDeleted(type, id) {
+    return apiClient(`/users/recently-deleted/${type}/${id}/permanent`, {
+      method: 'DELETE',
+      fallbackHandler: async () => ({ success: true }),
+    });
+  },
 };

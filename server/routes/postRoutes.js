@@ -7,6 +7,7 @@ import {
   getPostById,
   deletePost,
   toggleLike,
+  toggleRepost,
   toggleSavePost,
   getSavedPosts,
   getSavedPostIds,
@@ -31,6 +32,7 @@ router.get('/:id', getPostById);
 router.delete('/:id', deletePost);
 
 router.post('/:id/like', toggleLike);
+router.post('/:id/repost', toggleRepost);
 router.post('/:id/save', toggleSavePost);
 
 router.get('/:id/comments', getComments);

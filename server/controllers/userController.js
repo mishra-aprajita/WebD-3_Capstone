@@ -1,7 +1,11 @@
+import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Follow } from '../models/Follow.js';
 import { Post } from '../models/Post.js';
+import { Story } from '../models/Story.js';
+import { Reel } from '../models/Reel.js';
 import { Comment } from '../models/Comment.js';
+import { createAndEmitNotification } from '../utils/notificationHelper.js';
 
 export const searchUsers = async (req, res, next) => {
   try {
@@ -119,39 +123,69 @@ export const getUserProfile = async (req, res, next) => {
 
     // Fetch user's posts (if blocked or private without following, hide posts)
     let formattedPosts = [];
+    let formattedReposts = [];
     if (!isBlocked && !hasBlockedViewer && (isSelf || !targetUser.isPrivate || isFollowing)) {
-      const posts = await Post.find({ author: targetUser._id })
-        .populate('author', 'username name avatarUrl')
-        .sort({ createdAt: -1 });
+      const [posts, repostedPostDocs, repostedReelDocs] = await Promise.all([
+        Post.find({ author: targetUser._id, isDeleted: { $ne: true } })
+          .populate('author', 'username name avatarUrl')
+          .sort({ createdAt: -1 }),
+        Post.find({ reposts: targetUser._id, isDeleted: { $ne: true } })
+          .populate('author', 'username name avatarUrl')
+          .sort({ createdAt: -1 }),
+        Reel.find({ reposts: targetUser._id, isDeleted: { $ne: true } })
+          .populate('author', 'username name avatarUrl')
+          .sort({ createdAt: -1 }),
+      ]);
 
-      formattedPosts = await Promise.all(
-        posts.map(async p => {
-          const comments = await Comment.find({ post: p._id })
-            .populate('author', 'username name avatarUrl')
-            .sort({ createdAt: 1 })
-            .lean();
+      const formatPostDoc = async (p) => {
+        const comments = await Comment.find({ post: p._id })
+          .populate('author', 'username name avatarUrl')
+          .sort({ createdAt: 1 })
+          .lean();
 
-          return {
-            ...p.toJSON(),
-            id: p._id.toString(),
-            likesCount: p.likes ? p.likes.length : 0,
+        return {
+          ...p.toJSON(),
+          id: p._id.toString(),
+          likesCount: p.likes ? p.likes.length : 0,
+          repostCount: p.reposts ? p.reposts.length : 0,
+          author: {
+            username: p.author?.username || targetUser.username,
+            name: p.author?.name || targetUser.name,
+            avatar: p.author?.avatarUrl,
+            avatarUrl: p.author?.avatarUrl,
+          },
+          comments: comments.map(c => ({
+            id: c._id.toString(),
+            text: c.text,
+            createdAt: c.createdAt,
             author: {
-              username: targetUser.username,
-              name: targetUser.name,
-              avatar: targetUser.avatarUrl,
-              avatarUrl: targetUser.avatarUrl,
+              username: c.author?.username,
+              avatar: c.author?.avatarUrl,
             },
-            comments: comments.map(c => ({
-              id: c._id.toString(),
-              text: c.text,
-              createdAt: c.createdAt,
-              author: {
-                username: c.author?.username,
-                avatar: c.author?.avatarUrl,
-              },
-            })),
-          };
-        })
+          })),
+        };
+      };
+
+      formattedPosts = await Promise.all(posts.map(formatPostDoc));
+      const repostedPosts = await Promise.all(repostedPostDocs.map(formatPostDoc));
+      const repostedReels = repostedReelDocs.map((r) => ({
+        ...r.toJSON(),
+        id: r._id.toString(),
+        imageUrl: r.videoUrl,
+        mediaType: 'video',
+        isReel: true,
+        likesCount: r.likes ? r.likes.length : 0,
+        repostCount: r.reposts ? r.reposts.length : 0,
+        author: {
+          username: r.author?.username,
+          name: r.author?.name,
+          avatar: r.author?.avatarUrl,
+          avatarUrl: r.author?.avatarUrl,
+        },
+        comments: [],
+      }));
+      formattedReposts = [...repostedPosts, ...repostedReels].sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
       );
     }
 
@@ -166,6 +200,7 @@ export const getUserProfile = async (req, res, next) => {
       isBlocked,
       hasBlockedViewer,
       posts: formattedPosts,
+      repostedPosts: formattedReposts,
     });
   } catch (error) {
     next(error);
@@ -204,6 +239,129 @@ export const updateProfile = async (req, res, next) => {
 
     await user.save();
     res.json(user);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+function computeDaysRemaining(deletedAt) {
+  if (!deletedAt) return 30;
+  const elapsed = Date.now() - new Date(deletedAt).getTime();
+  return Math.max(0, Math.ceil((THIRTY_DAYS_MS - elapsed) / (24 * 60 * 60 * 1000)));
+}
+
+function getModelByType(type) {
+  if (type === 'post') return Post;
+  if (type === 'story') return Story;
+  if (type === 'reel') return Reel;
+  return null;
+}
+
+/**
+ * GET /api/users/recently-deleted
+ * Returns soft-deleted posts, stories, and reels owned by req.user within 30 days.
+ */
+export const getRecentlyDeleted = async (req, res, next) => {
+  try {
+    const cutoff = new Date(Date.now() - THIRTY_DAYS_MS);
+    const filter = {
+      author: req.user._id,
+      isDeleted: true,
+      $or: [{ deletedAt: { $gte: cutoff } }, { deletedAt: null }],
+    };
+
+    const [posts, stories, reels] = await Promise.all([
+      Post.find(filter).sort({ deletedAt: -1 }),
+      Story.find(filter).sort({ deletedAt: -1 }),
+      Reel.find(filter).sort({ deletedAt: -1 }),
+    ]);
+
+    res.json({
+      posts: posts.map((p) => ({
+        ...p.toJSON(),
+        daysRemaining: computeDaysRemaining(p.deletedAt),
+      })),
+      stories: stories.map((s) => ({
+        ...s.toJSON(),
+        daysRemaining: computeDaysRemaining(s.deletedAt),
+      })),
+      reels: reels.map((r) => ({
+        ...r.toJSON(),
+        daysRemaining: computeDaysRemaining(r.deletedAt),
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/users/recently-deleted/:type/:id/restore
+ */
+export const restoreRecentlyDeleted = async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    const Model = getModelByType(type);
+    if (!Model) {
+      return res.status(400).json({ message: 'Invalid type. Must be post, story, or reel' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid item ID' });
+    }
+
+    const doc = await Model.findOne({ _id: id, isDeleted: true });
+    if (!doc) {
+      return res.status(404).json({ message: 'Deleted item not found' });
+    }
+
+    if (doc.author.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: You cannot restore this item' });
+    }
+
+    doc.isDeleted = false;
+    doc.deletedAt = null;
+    await doc.save();
+
+    res.json({ success: true, message: `${type} restored successfully`, item: doc.toJSON() });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/users/recently-deleted/:type/:id/permanent
+ */
+export const permanentDeleteRecentlyDeleted = async (req, res, next) => {
+  try {
+    const { type, id } = req.params;
+    const Model = getModelByType(type);
+    if (!Model) {
+      return res.status(400).json({ message: 'Invalid type. Must be post, story, or reel' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid item ID' });
+    }
+
+    const doc = await Model.findOne({ _id: id, isDeleted: true });
+    if (!doc) {
+      return res.status(404).json({ message: 'Deleted item not found' });
+    }
+
+    if (doc.author.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: You cannot permanently delete this item' });
+    }
+
+    await Model.findByIdAndDelete(doc._id);
+    if (type === 'post' || type === 'reel') {
+      await Comment.deleteMany({ post: doc._id });
+    }
+    if (type === 'post') {
+      await User.updateMany({ savedPosts: doc._id }, { $pull: { savedPosts: doc._id } });
+    }
+
+    res.json({ success: true, message: `${type} permanently deleted` });
   } catch (error) {
     next(error);
   }
@@ -389,6 +547,12 @@ export const toggleFollow = async (req, res, next) => {
         targetUser.followRequests.addToSet(req.user._id);
         hasRequested = true;
         status = 'requested';
+        await createAndEmitNotification({
+          app: req.app,
+          recipientId: targetUser._id,
+          actorId: req.user._id,
+          type: 'follow_request',
+        });
       }
       await targetUser.save();
     } else {
@@ -399,6 +563,12 @@ export const toggleFollow = async (req, res, next) => {
       await follow.save();
       isFollowing = true;
       status = 'following';
+      await createAndEmitNotification({
+        app: req.app,
+        recipientId: targetUser._id,
+        actorId: req.user._id,
+        type: 'follow',
+      });
     }
 
     const targetFollowersCount = await Follow.countDocuments({ following: targetUser._id });
@@ -465,6 +635,13 @@ export const acceptFollowRequest = async (req, res, next) => {
     if (!existing) {
       await Follow.create({ follower: requesterId, following: currentUser._id });
     }
+
+    await createAndEmitNotification({
+      app: req.app,
+      recipientId: currentUser._id,
+      actorId: requesterId,
+      type: 'follow',
+    });
 
     res.json({ success: true, message: 'Follow request accepted' });
   } catch (error) {

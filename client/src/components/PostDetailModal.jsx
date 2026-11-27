@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   X,
@@ -9,6 +9,7 @@ import {
   Trash2,
   Send,
   MapPin,
+  Repeat2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -16,6 +17,7 @@ import { CommentSection } from './CommentSection';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from './Avatar';
 import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 export function PostDetailModal() {
   const { user, isAdmin } = useAuth();
@@ -23,6 +25,7 @@ export function PostDetailModal() {
     activeDetailPost,
     setActiveDetailPost,
     toggleLike,
+    toggleRepost,
     toggleSave,
     savedPostIds,
     addComment,
@@ -31,6 +34,7 @@ export function PostDetailModal() {
 
   const [newComment, setNewComment] = useState('');
   const [imgError, setImgError] = useState(false);
+  const commentInputRef = useRef(null);
 
   if (!activeDetailPost) return null;
 
@@ -39,6 +43,12 @@ export function PostDetailModal() {
     (id) =>
       (currentUserId && String(id?._id || id) === currentUserId) ||
       (user?.username && String(id) === String(user.username))
+  );
+  const isReposted = Boolean(
+    activeDetailPost.isReposted ||
+      (activeDetailPost.reposts || []).some(
+        (id) => currentUserId && String(id?._id || id) === currentUserId
+      )
   );
   const isSaved = (savedPostIds || []).includes(activeDetailPost.id);
   const isOwner = user?.username === activeDetailPost.author?.username;
@@ -192,6 +202,18 @@ export function PostDetailModal() {
                   />
                 </button>
                 <button
+                  onClick={() => toggleRepost(activeDetailPost.id)}
+                  className={`flex items-center gap-1 transition ${
+                    isReposted ? 'text-emerald-400' : 'text-white hover:text-emerald-400'
+                  }`}
+                  title="Repost"
+                >
+                  <Repeat2 size={22} />
+                  {(activeDetailPost.repostCount || 0) > 0 && (
+                    <span className="text-xs font-semibold">{activeDetailPost.repostCount}</span>
+                  )}
+                </button>
+                <button
                   onClick={() => {
                     navigator.clipboard?.writeText(window.location.origin);
                     alert('Post link copied to clipboard!');
@@ -223,9 +245,15 @@ export function PostDetailModal() {
               </div>
             </div>
 
-            {/* Comment input form */}
+            {/* Comment input form with Emoji Picker */}
             <form onSubmit={handleCommentSubmit} className="flex items-center gap-2 pt-1 border-t border-neutral-900">
+              <EmojiPickerButton
+                inputRef={commentInputRef}
+                value={newComment}
+                onChange={setNewComment}
+              />
               <input
+                ref={commentInputRef}
                 type="text"
                 placeholder="Add a comment..."
                 value={newComment}

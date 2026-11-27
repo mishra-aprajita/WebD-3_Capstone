@@ -3,8 +3,12 @@
  * Shared helpers for media URL resolution and type detection.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-export const SERVER_BASE = API_BASE.replace('/api', ''); // e.g. http://localhost:5000
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
+
+export const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
 
 /**
  * Resolve a media URL that may be:
@@ -14,10 +18,9 @@ export const SERVER_BASE = API_BASE.replace('/api', ''); // e.g. http://localhos
  */
 export function resolveMediaUrl(url, fallback = '') {
   if (!url) return fallback;
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) {
     return url;
   }
-  // Relative path from backend (e.g. "/uploads/1234.jpg")
   return `${SERVER_BASE}${url.startsWith('/') ? url : '/' + url}`;
 }
 
@@ -28,6 +31,6 @@ export function resolveMediaUrl(url, fallback = '') {
 export function isVideoMedia(post) {
   if (post?.mediaType === 'video') return true;
   if (post?.isReel) return true;
-  const url = (post?.imageUrl || post?.videoUrl || '').toLowerCase();
+  const url = (post?.imageUrl || post?.videoUrl || post?.mediaUrl || '').toLowerCase();
   return /\.(mp4|mov|webm)(\?|$)/.test(url);
 }

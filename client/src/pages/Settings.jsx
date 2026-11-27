@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   User,
@@ -7,16 +7,22 @@ import {
   UserX,
   Star,
   Archive as ArchiveIcon,
+  Trash2,
+  RotateCcw,
+  X,
   Check,
   AlertCircle,
   Eye,
   EyeOff,
   Search,
   ArrowLeft,
+  Clock,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useFeed } from '../context/FeedContext';
 import { userApi } from '../api/userApi';
 import { Avatar } from '../components/Avatar';
+import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function Settings() {
   const { user, updateUserSession } = useAuth();
@@ -28,20 +34,58 @@ export function Settings() {
     setSearchParams({ tab });
   };
 
+  const handleClose = useCallback(() => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate(user?.username ? `/profile/${user.username}` : '/');
+    }
+  }, [navigate, user?.username]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleClose]);
+
   return (
     <div className="min-h-screen bg-black text-white max-w-5xl mx-auto px-4 py-8">
       {/* Top Mobile Bar */}
-      <div className="md:hidden flex items-center gap-3 mb-6 pb-4 border-b border-[#262626]">
+      <div className="md:hidden flex items-center justify-between gap-3 mb-6 pb-4 border-b border-[#262626]">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleClose}
+            className="p-1.5 rounded-full hover:bg-[#262626] text-neutral-300"
+            aria-label="Back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-xl font-bold">Settings</h1>
+        </div>
         <button
-          onClick={() => navigate(-1)}
-          className="p-1.5 rounded-full hover:bg-[#262626] text-neutral-300"
+          onClick={handleClose}
+          className="p-2 rounded-full bg-[#262626] hover:bg-[#363636] text-neutral-200 transition"
+          aria-label="Close Settings"
+          title="Close (Esc)"
         >
-          <ArrowLeft size={20} />
+          <X size={18} />
         </button>
-        <h1 className="text-xl font-bold">Settings</h1>
       </div>
 
-      <div className="bg-[#121212] border border-[#262626] rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row min-h-[620px]">
+      <div className="relative bg-[#121212] border border-[#262626] rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row min-h-[620px]">
+        {/* Prominent Top-Right Close (X) Button */}
+        <button
+          onClick={handleClose}
+          className="hidden md:flex absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-[#262626] hover:bg-[#363636] text-neutral-200 hover:text-white items-center justify-center transition shadow-lg"
+          aria-label="Close Settings"
+          title="Close Settings (Esc)"
+        >
+          <X size={18} />
+        </button>
+
         {/* Left Sidebar Navigation */}
         <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-[#262626] bg-black/60 p-4 shrink-0">
           <div className="hidden md:block mb-6 px-3">
@@ -81,11 +125,17 @@ export function Settings() {
             />
             <Link
               to="/archive"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-[#262626] transition"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap text-neutral-400 hover:text-white hover:bg-neutral-900 transition"
             >
               <ArchiveIcon size={18} />
               <span>Story Archive</span>
             </Link>
+            <TabButton
+              active={activeTab === 'recently-deleted'}
+              onClick={() => setTab('recently-deleted')}
+              icon={Trash2}
+              label="Recently Deleted"
+            />
           </nav>
         </aside>
 
@@ -96,6 +146,7 @@ export function Settings() {
           {activeTab === 'password' && <ChangePasswordPanel user={user} />}
           {activeTab === 'blocked' && <BlockedAccountsPanel user={user} />}
           {activeTab === 'close-friends' && <CloseFriendsPanel user={user} onUpdate={updateUserSession} />}
+          {activeTab === 'recently-deleted' && <RecentlyDeletedPanel />}
         </main>
       </div>
     </div>
@@ -699,6 +750,194 @@ function CloseFriendsPanel({ user, onUpdate }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─── 6. Recently Deleted Panel ─────────────────────────────────────────────── */
+function RecentlyDeletedPanel() {
+  const { refreshFeed } = useFeed();
+  const [subTab, setSubTab] = useState('posts'); // 'posts' | 'stories' | 'reels'
+  const [data, setData] = useState({ posts: [], stories: [], reels: [] });
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [statusMsg, setStatusMsg] = useState('');
+
+  const loadDeleted = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await userApi.getRecentlyDeleted();
+      setData({
+        posts: Array.isArray(res?.posts) ? res.posts : [],
+        stories: Array.isArray(res?.stories) ? res.stories : [],
+        reels: Array.isArray(res?.reels) ? res.reels : [],
+      });
+    } catch (err) {
+      console.error('Failed to load recently deleted', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDeleted();
+  }, [loadDeleted]);
+
+  const singularType = subTab === 'posts' ? 'post' : subTab === 'stories' ? 'story' : 'reel';
+  const items = data[subTab] || [];
+
+  const handleRestore = async (id) => {
+    setBusyId(id);
+    setStatusMsg('');
+    try {
+      await userApi.restoreRecentlyDeleted(singularType, id);
+      setData((prev) => ({
+        ...prev,
+        [subTab]: prev[subTab].filter((item) => (item._id || item.id) !== id),
+      }));
+      setStatusMsg('Restored successfully!');
+      refreshFeed();
+    } catch (err) {
+      setStatusMsg(err.message || 'Failed to restore item');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handlePermanentDelete = async (id) => {
+    if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
+    setBusyId(id);
+    setStatusMsg('');
+    try {
+      await userApi.permanentDeleteRecentlyDeleted(singularType, id);
+      setData((prev) => ({
+        ...prev,
+        [subTab]: prev[subTab].filter((item) => (item._id || item.id) !== id),
+      }));
+      setStatusMsg('Permanently deleted.');
+    } catch (err) {
+      setStatusMsg(err.message || 'Failed to delete item');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          <Trash2 size={20} className="text-rose-400" />
+          <span>Recently Deleted</span>
+        </h3>
+        <p className="text-xs text-neutral-400 mt-1">
+          Deleted posts, stories, and reels stay here for 30 days before they are permanently removed.
+        </p>
+      </div>
+
+      {/* Category Tabs */}
+      <div className="flex items-center gap-2 border-b border-[#262626] pb-3">
+        {[
+          { key: 'posts', label: `Posts (${data.posts.length})` },
+          { key: 'stories', label: `Stories (${data.stories.length})` },
+          { key: 'reels', label: `Reels (${data.reels.length})` },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setSubTab(t.key)}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
+              subTab === t.key
+                ? 'bg-[#262626] text-white'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {statusMsg && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+          <Check size={14} />
+          <span>{statusMsg}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="aspect-square rounded-xl bg-neutral-900 animate-pulse border border-[#262626]" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="py-16 text-center space-y-2 border border-dashed border-[#262626] rounded-2xl">
+          <Trash2 size={32} className="mx-auto text-neutral-600" />
+          <p className="text-sm font-semibold text-neutral-300">No deleted {subTab}</p>
+          <p className="text-xs text-neutral-500">
+            Items you delete will appear here for 30 days.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {items.map((item) => {
+            const id = item._id || item.id;
+            const mediaSrc = resolveMediaUrl(item.imageUrl || item.videoUrl || item.mediaUrl);
+            const isVideo = isVideoMedia(item) || subTab === 'reels';
+            const isBusy = busyId === id;
+
+            return (
+              <div
+                key={id}
+                className="rounded-xl overflow-hidden bg-black/60 border border-[#262626] flex flex-col"
+              >
+                <div className="relative aspect-square bg-neutral-950">
+                  {isVideo ? (
+                    <video
+                      src={mediaSrc}
+                      className="w-full h-full object-cover"
+                      muted
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={mediaSrc}
+                      alt={item.caption || 'Deleted item'}
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                  <div className="absolute top-2 left-2 bg-black/75 backdrop-blur-md text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-400/20">
+                    <Clock size={10} />
+                    <span>{item.daysRemaining ?? 30}d left</span>
+                  </div>
+                </div>
+
+                <div className="p-3 space-y-2.5 flex-1 flex flex-col justify-between">
+                  {item.caption && (
+                    <p className="text-xs text-neutral-300 line-clamp-2">{item.caption}</p>
+                  )}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={() => handleRestore(id)}
+                      disabled={isBusy}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[#0095f6] hover:bg-[#1877f2] text-white text-xs font-semibold transition disabled:opacity-50"
+                    >
+                      <RotateCcw size={13} />
+                      <span>Restore</span>
+                    </button>
+                    <button
+                      onClick={() => handlePermanentDelete(id)}
+                      disabled={isBusy}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-[#262626] hover:bg-red-500/20 text-neutral-300 hover:text-red-400 text-xs font-semibold transition disabled:opacity-50"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

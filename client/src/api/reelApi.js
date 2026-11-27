@@ -125,6 +125,19 @@ export const reelApi = {
     });
   },
 
+  async toggleRepost(reelId) {
+    return apiClient(`/reels/${reelId}/repost`, {
+      method: 'POST',
+      fallbackHandler: async () => {
+        const reel = _mockReels.find(r => r._id === reelId || r.id === reelId);
+        if (!reel) throw new Error('Reel not found');
+        reel.isReposted = !reel.isReposted;
+        reel.repostCount = (reel.repostCount || 0) + (reel.isReposted ? 1 : -1);
+        return { isReposted: reel.isReposted, repostCount: Math.max(0, reel.repostCount) };
+      },
+    });
+  },
+
   async deleteReel(reelId) {
     return apiClient(`/reels/${reelId}`, {
       method: 'DELETE',

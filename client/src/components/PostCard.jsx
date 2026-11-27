@@ -1,37 +1,49 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Heart,
   MessageCircle,
   Bookmark,
-  Share2,
   MoreHorizontal,
   Trash2,
-  MapPin,
   Send,
   Film,
+  Repeat2,
+  Sparkles,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from './Avatar';
 import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
+import { EmojiPickerButton } from './EmojiPickerButton';
 
 export function PostCard({ post }) {
   const { user, isAdmin } = useAuth();
-  const { toggleLike, toggleSave, savedPostIds, addComment, deletePost, setActiveDetailPost } = useFeed();
+  const navigate = useNavigate();
+  const { toggleLike, toggleRepost, toggleSave, savedPostIds, addComment, deletePost, createStory, setActiveDetailPost } = useFeed();
 
   const [commentText, setCommentText] = useState('');
   const [showHeartBurst, setShowHeartBurst] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState('');
   const [imgError, setImgError] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const commentInputRef = useRef(null);
 
   const currentUserId = String(user?._id || user?.id || '');
   const isLiked = (post.likes || []).some(
     (id) =>
       (currentUserId && String(id?._id || id) === currentUserId) ||
       (user?.username && String(id) === String(user.username))
+  );
+  const isReposted = Boolean(
+    post.isReposted ||
+      (post.reposts || []).some(
+        (id) => currentUserId && String(id?._id || id) === currentUserId
+      )
   );
   const isSaved = (savedPostIds || []).includes(post.id);
   const isOwner = user?.username === post.author?.username;
@@ -73,6 +85,19 @@ export function PostCard({ post }) {
 
   return (
     <article className="w-full max-w-[470px] mx-auto select-none border-b border-[#262626] pb-5 mb-5">
+      {/* Reposted By Header Badge */}
+      {post.repostedBy && (
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-neutral-400 pb-2 px-0.5">
+          <Repeat2 size={13} className="text-emerald-400" />
+          <span>
+            Reposted by{' '}
+            <Link to={`/profile/${post.repostedBy}`} className="text-neutral-200 hover:underline font-semibold">
+              @{post.repostedBy}
+            </Link>
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between pb-3 px-0.5">
         <div className="flex items-center gap-3">
@@ -216,17 +241,77 @@ export function PostCard({ post }) {
               <MessageCircle size={24} />
             </button>
 
-            {/* Share / Copy Link Button */}
+            {/* Repost Button */}
             <button
-              onClick={() => {
-                navigator.clipboard?.writeText(window.location.origin);
-                alert('Link copied to clipboard!');
-              }}
-              className="text-white hover:opacity-60 transition active:scale-110"
-              aria-label="Share post"
+              onClick={() => toggleRepost(post.id)}
+              className={`flex items-center gap-1 transition active:scale-110 ${
+                isReposted ? 'text-emerald-400' : 'text-white hover:opacity-60'
+              }`}
+              aria-label="Repost"
+              title="Repost to your feed & profile"
             >
-              <Send size={22} className="-rotate-12" />
+              <Repeat2 size={23} />
+              {(post.repostCount || 0) > 0 && (
+                <span className="text-xs font-semibold">{post.repostCount}</span>
+              )}
             </button>
+
+            {/* Share Menu (Copy Link / Share to Story / Send via DM) */}
+            <div className="relative">
+              <button
+                onClick={() => setIsShareOpen((s) => !s)}
+                className="text-white hover:opacity-60 transition active:scale-110"
+                aria-label="Share post"
+              >
+                <Send size={22} className="-rotate-12" />
+              </button>
+
+              {isShareOpen && (
+                <div className="absolute left-0 bottom-8 w-48 bg-neutral-900 border border-[#262626] rounded-xl shadow-2xl p-1.5 z-30 text-xs">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await createStory({
+                        imageUrl: post.imageUrl,
+                        mediaType: post.mediaType || 'image',
+                        caption: `Shared @${post.author?.username}'s post`,
+                      });
+                      setIsShareOpen(false);
+                      setShareFeedback('Added to your Story!');
+                      setTimeout(() => setShareFeedback(''), 2000);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg transition"
+                  >
+                    <Sparkles size={14} className="text-emerald-400" />
+                    <span>Share to Story</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsShareOpen(false);
+                      navigate('/messages');
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg transition"
+                  >
+                    <Send size={14} className="text-blue-400" />
+                    <span>Send via DM</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(`${window.location.origin}/?post=${post.id}`);
+                      setIsShareOpen(false);
+                      setShareFeedback('Link copied!');
+                      setTimeout(() => setShareFeedback(''), 2000);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-neutral-200 hover:text-white hover:bg-neutral-800 rounded-lg transition"
+                  >
+                    <LinkIcon size={14} />
+                    <span>Copy link</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Bookmark / Save */}
@@ -241,6 +326,10 @@ export function PostCard({ post }) {
             />
           </button>
         </div>
+
+        {shareFeedback && (
+          <div className="text-[11px] text-emerald-400 font-medium mb-1.5">{shareFeedback}</div>
+        )}
 
         {/* Likes Count */}
         <div className="text-sm font-semibold text-white mb-2">
@@ -285,12 +374,18 @@ export function PostCard({ post }) {
           ))}
         </div>
 
-        {/* Inline Comment Input Form */}
+        {/* Inline Comment Input Form with Emoji Picker */}
         <form
           onSubmit={handleCommentSubmit}
-          className="flex items-center pt-2 mt-1 border-t border-[#262626]/40"
+          className="flex items-center gap-2 pt-2 mt-1 border-t border-[#262626]/40"
         >
+          <EmojiPickerButton
+            inputRef={commentInputRef}
+            value={commentText}
+            onChange={setCommentText}
+          />
           <input
+            ref={commentInputRef}
             type="text"
             placeholder="Add a comment..."
             value={commentText}

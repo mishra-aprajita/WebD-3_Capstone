@@ -19,6 +19,7 @@ import adminRoutes from './routes/adminRoutes.js';
 import reelRoutes from './routes/reelRoutes.js';
 import highlightRoutes from './routes/highlightRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 dotenv.config();
 
@@ -73,6 +74,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/reels', reelRoutes);
 app.use('/api/highlights', highlightRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Serve all uploaded files (images, videos, reels) statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

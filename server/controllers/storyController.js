@@ -86,6 +86,7 @@ export const getStories = async (req, res, next) => {
     let stories = await Story.find({
       author: { $in: targetUserIds },
       createdAt: { $gte: cutoff },
+      isDeleted: { $ne: true },
     })
       .populate('author', 'username name avatarUrl closeFriends')
       .sort({ createdAt: -1 });
@@ -95,6 +96,7 @@ export const getStories = async (req, res, next) => {
       stories = await Story.find({
         createdAt: { $gte: cutoff },
         author: { $nin: Array.from(excludedIds) },
+        isDeleted: { $ne: true },
       })
         .populate('author', 'username name avatarUrl closeFriends')
         .sort({ createdAt: -1 });
@@ -204,8 +206,10 @@ export const deleteStory = async (req, res, next) => {
       return res.status(403).json({ message: 'Forbidden: You cannot delete this story' });
     }
 
-    await Story.findByIdAndDelete(story._id);
-    res.json({ success: true, message: 'Story deleted successfully' });
+    story.isDeleted = true;
+    story.deletedAt = new Date();
+    await story.save();
+    res.json({ success: true, message: 'Story moved to Recently Deleted' });
   } catch (error) {
     next(error);
   }

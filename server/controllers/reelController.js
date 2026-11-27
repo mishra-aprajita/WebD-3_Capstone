@@ -1,30 +1,39 @@
+import mongoose from 'mongoose';
 import { Reel } from '../models/Reel.js';
 import { Post } from '../models/Post.js';
 import { Comment } from '../models/Comment.js';
-import { User } from '../models/User.js';
+import { createAndEmitNotification } from '../utils/notificationHelper.js';
 
 export const getReels = async (req, res, next) => {
   try {
     const [reels, videoPosts] = await Promise.all([
-      Reel.find()
+      Reel.find({ isDeleted: { $ne: true } })
         .populate('author', 'username avatarUrl name')
         .sort({ createdAt: -1 }),
-      Post.find({ $or: [{ mediaType: 'video' }, { isReel: true }] })
+      Post.find({
+        isDeleted: { $ne: true },
+        $or: [{ mediaType: 'video' }, { isReel: true }],
+      })
         .populate('author', 'username avatarUrl name')
         .sort({ createdAt: -1 }),
     ]);
 
-    // Attach comment count per reel
     const enrichedReels = await Promise.all(
       reels.map(async (reel) => {
         const commentsCount = await Comment.countDocuments({ post: reel._id });
         const json = reel.toJSON();
+        const repostsArr = Array.isArray(reel.reposts) ? reel.reposts : [];
         return {
           ...json,
           url: json.videoUrl,
           mediaType: 'video',
           isReel: true,
           likesCount: reel.likes.length,
+          repostCount: repostsArr.length,
+          reposts: repostsArr.map((id) => String(id)),
+          isReposted: req.user
+            ? repostsArr.some((id) => id.toString() === req.user._id.toString())
+            : false,
           commentsCount,
           isLiked: req.user
             ? reel.likes.some((id) => id.toString() === req.user._id.toString())
@@ -37,6 +46,7 @@ export const getReels = async (req, res, next) => {
       videoPosts.map(async (post) => {
         const commentsCount = await Comment.countDocuments({ post: post._id });
         const json = post.toJSON();
+        const repostsArr = Array.isArray(post.reposts) ? post.reposts : [];
         return {
           ...json,
           videoUrl: json.imageUrl,
@@ -45,6 +55,11 @@ export const getReels = async (req, res, next) => {
           isReel: true,
           audioTitle: json.location || 'Original Audio',
           likesCount: post.likes.length,
+          repostCount: repostsArr.length,
+          reposts: repostsArr.map((id) => String(id)),
+          isReposted: req.user
+            ? repostsArr.some((id) => id.toString() === req.user._id.toString())
+            : false,
           commentsCount,
           isLiked: req.user
             ? post.likes.some((id) => id.toString() === req.user._id.toString())
@@ -68,7 +83,6 @@ export const createReel = async (req, res, next) => {
     const { caption, audioTitle, videoUrl } = req.body;
     let finalVideoUrl = videoUrl;
 
-    // If a file was uploaded via multer, build the URL from the server
     if (req.file) {
       finalVideoUrl = `/uploads/reels/${req.file.filename}`;
     }
@@ -93,6 +107,9 @@ export const createReel = async (req, res, next) => {
       mediaType: 'video',
       isReel: true,
       likesCount: 0,
+      repostCount: 0,
+      reposts: [],
+      isReposted: false,
       commentsCount: 0,
       isLiked: false,
     });
@@ -103,9 +120,14 @@ export const createReel = async (req, res, next) => {
 
 export const toggleReelLike = async (req, res, next) => {
   try {
-    let doc = await Reel.findById(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid reel ID' });
+    }
+    let isPost = false;
+    let doc = await Reel.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
     if (!doc) {
-      doc = await Post.findById(req.params.id);
+      doc = await Post.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+      isPost = Boolean(doc);
     }
     if (!doc) return res.status(404).json({ message: 'Reel not found' });
 
@@ -120,6 +142,17 @@ export const toggleReelLike = async (req, res, next) => {
 
     await doc.save();
 
+    if (!alreadyLiked) {
+      await createAndEmitNotification({
+        app: req.app,
+        recipientId: doc.author,
+        actorId: userId,
+        type: 'like',
+        postId: isPost ? doc._id : null,
+        reelId: isPost ? null : doc._id,
+      });
+    }
+
     res.json({
       isLiked: !alreadyLiked,
       likesCount: doc.likes.length,
@@ -129,13 +162,58 @@ export const toggleReelLike = async (req, res, next) => {
   }
 };
 
+export const toggleReelRepost = async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid reel ID' });
+    }
+    let isPost = false;
+    let doc = await Reel.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!doc) {
+      doc = await Post.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+      isPost = Boolean(doc);
+    }
+    if (!doc) return res.status(404).json({ message: 'Reel not found' });
+
+    const userId = req.user._id;
+    const alreadyReposted = (doc.reposts || []).some((id) => id.toString() === userId.toString());
+
+    if (alreadyReposted) {
+      doc.reposts.pull(userId);
+    } else {
+      doc.reposts.addToSet(userId);
+    }
+
+    await doc.save();
+
+    if (!alreadyReposted) {
+      await createAndEmitNotification({
+        app: req.app,
+        recipientId: doc.author,
+        actorId: userId,
+        type: 'repost',
+        postId: isPost ? doc._id : null,
+        reelId: isPost ? null : doc._id,
+      });
+    }
+
+    res.json({
+      isReposted: !alreadyReposted,
+      repostCount: doc.reposts.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const deleteReel = async (req, res, next) => {
   try {
-    let isPost = false;
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid reel ID' });
+    }
     let doc = await Reel.findById(req.params.id);
     if (!doc) {
       doc = await Post.findById(req.params.id);
-      isPost = Boolean(doc);
     }
     if (!doc) return res.status(404).json({ message: 'Reel not found' });
 
@@ -146,16 +224,11 @@ export const deleteReel = async (req, res, next) => {
       return res.status(403).json({ message: 'Not authorized to delete this reel' });
     }
 
-    await doc.deleteOne();
-    await Comment.deleteMany({ post: doc._id });
-    if (isPost) {
-      await User.updateMany(
-        { savedPosts: doc._id },
-        { $pull: { savedPosts: doc._id } }
-      );
-    }
+    doc.isDeleted = true;
+    doc.deletedAt = new Date();
+    await doc.save();
 
-    res.json({ success: true, message: 'Reel deleted successfully' });
+    res.json({ success: true, message: 'Reel moved to Recently Deleted' });
   } catch (error) {
     next(error);
   }

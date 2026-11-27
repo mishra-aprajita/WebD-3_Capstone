@@ -86,6 +86,17 @@ export function FeedProvider({ children }) {
     }
   };
 
+  // Toggle Repost
+  const toggleRepost = async (postId) => {
+    if (!user) return;
+    const updatedPost = await postApi.toggleRepost(postId);
+    setPosts(prev => prev.map(p => (p.id === postId ? { ...p, ...updatedPost } : p)));
+    if (activeDetailPost?.id === postId) {
+      setActiveDetailPost(prev => (prev ? { ...prev, ...updatedPost } : prev));
+    }
+    return updatedPost;
+  };
+
   // Add Comment
   const addComment = async (postId, text) => {
     if (!user || !text.trim()) return;
@@ -162,6 +173,7 @@ export function FeedProvider({ children }) {
     createPost,
     deletePost,
     toggleLike,
+    toggleRepost,
     addComment,
     toggleSave,
     createStory,

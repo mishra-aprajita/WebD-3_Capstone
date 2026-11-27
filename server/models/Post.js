@@ -43,6 +43,21 @@ const postSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    reposts: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -51,6 +66,7 @@ const postSchema = new mongoose.Schema(
       transform: (doc, ret) => {
         ret.id = ret._id.toString();
         ret.likesCount = Array.isArray(ret.likes) ? ret.likes.length : 0;
+        ret.repostCount = Array.isArray(ret.reposts) ? ret.reposts.length : 0;
         // Ensure mediaType always present in serialised output
         if (!ret.mediaType) ret.mediaType = 'image';
         delete ret.__v;
