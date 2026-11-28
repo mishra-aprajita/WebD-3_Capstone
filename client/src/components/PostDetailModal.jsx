@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   X,
@@ -10,6 +10,8 @@ import {
   Send,
   MapPin,
   Repeat2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -34,9 +36,24 @@ export function PostDetailModal() {
 
   const [newComment, setNewComment] = useState('');
   const [imgError, setImgError] = useState(false);
+  const [currentImageIdx, setCurrentImageIdx] = useState(0);
   const commentInputRef = useRef(null);
 
+  useEffect(() => {
+    setCurrentImageIdx(0);
+    setImgError(false);
+  }, [activeDetailPost?.id, activeDetailPost?._id]);
+
   if (!activeDetailPost) return null;
+
+  const postImages =
+    Array.isArray(activeDetailPost.images) && activeDetailPost.images.length > 0
+      ? activeDetailPost.images
+      : activeDetailPost.imageUrl || activeDetailPost.image
+      ? [activeDetailPost.imageUrl || activeDetailPost.image]
+      : [];
+  const activeImageSrc =
+    postImages[currentImageIdx] || activeDetailPost.imageUrl || activeDetailPost.image;
 
   const currentUserId = String(user?._id || user?.id || '');
   const isLiked = (activeDetailPost.likes || []).some(
@@ -95,7 +112,7 @@ export function PostDetailModal() {
       {/* Modal Dialog */}
       <div className="relative z-10 w-full max-w-5xl h-[88vh] bg-black border border-[#262626] rounded-xl overflow-hidden shadow-2xl flex flex-col md:flex-row">
         {/* Left: Full Post Media */}
-        <div className="md:w-3/5 bg-black flex items-center justify-center overflow-hidden border-b md:border-b-0 md:border-r border-[#262626]">
+        <div className="relative md:w-3/5 bg-black flex items-center justify-center overflow-hidden border-b md:border-b-0 md:border-r border-[#262626]">
           {isVideoMedia(activeDetailPost) ? (
             <video
               src={resolveMediaUrl(activeDetailPost.imageUrl)}
@@ -107,12 +124,57 @@ export function PostDetailModal() {
               onError={() => setImgError(true)}
             />
           ) : (
-            <img
-              src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(activeDetailPost.imageUrl, FALLBACK_IMAGE)}
-              alt={activeDetailPost.caption || 'Post image'}
-              className="w-full h-full object-contain"
-              onError={() => setImgError(true)}
-            />
+            <>
+              <img
+                src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(activeImageSrc, FALLBACK_IMAGE)}
+                alt={activeDetailPost.caption || 'Post image'}
+                className="w-full h-full object-contain"
+                onError={() => setImgError(true)}
+              />
+              {postImages.length > 1 && (
+                <>
+                  {currentImageIdx > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImgError(false);
+                        setCurrentImageIdx((i) => i - 1);
+                      }}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white p-2 rounded-full transition z-10"
+                      aria-label="Previous photo"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                  )}
+                  {currentImageIdx < postImages.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImgError(false);
+                        setCurrentImageIdx((i) => i + 1);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white p-2 rounded-full transition z-10"
+                      aria-label="Next photo"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  )}
+                  <div className="absolute top-3 right-3 bg-black/70 text-white text-xs font-semibold px-2.5 py-1 rounded-full pointer-events-none">
+                    {currentImageIdx + 1}/{postImages.length}
+                  </div>
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-none">
+                    {postImages.map((_, idx) => (
+                      <span
+                        key={idx}
+                        className={`h-1.5 rounded-full transition-all ${
+                          idx === currentImageIdx ? 'w-4 bg-white' : 'w-1.5 bg-white/50'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
           )}
         </div>
 

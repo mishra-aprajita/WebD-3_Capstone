@@ -18,9 +18,11 @@ import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
 import { useMessages } from '../context/MessageContext';
 import { messageApi } from '../api/messageApi';
+import { postApi } from '../api/postApi';
 import { getMockUsers } from '../mock/mockStorage';
 import { FALLBACK_IMAGE } from '../mock/mockData';
 import { Avatar } from '../components/Avatar';
+import { resolveMediaUrl } from '../utils/mediaUtils';
 
 export function Messages() {
   const { user } = useAuth();
@@ -199,11 +201,18 @@ export function Messages() {
     try {
       const newMsg = await messageApi.sendMessage(selectedUser.username, {
         text: `Shared a post by @${postToShare.author?.username}`,
+        sharedPostId: postToShare.id || postToShare._id,
         sharedPost: {
-          id: postToShare.id,
-          imageUrl: postToShare.imageUrl,
+          id: postToShare.id || postToShare._id,
+          imageUrl: postToShare.imageUrl || postToShare.image || postToShare.images?.[0],
+          image: postToShare.image || postToShare.imageUrl,
+          images: postToShare.images || (postToShare.imageUrl ? [postToShare.imageUrl] : []),
           caption: postToShare.caption,
-          author: { username: postToShare.author?.username },
+          author: {
+            username: postToShare.author?.username,
+            name: postToShare.author?.name,
+            avatarUrl: postToShare.author?.avatarUrl || postToShare.author?.avatar,
+          },
         },
         currentUsername: user.username,
       });
@@ -528,35 +537,71 @@ export function Messages() {
                           {/* Shared Post Card Attachment */}
                           {msg.sharedPost && (
                             <div
-                              onClick={() => {
-                                const found = posts.find((p) => p.id === msg.sharedPost.id);
-                                if (found) setActiveDetailPost(found);
+                              onClick={async () => {
+                                const spId = msg.sharedPost.id || msg.sharedPost._id;
+                                const found = posts.find((p) => (p.id || p._id) === spId);
+                                if (found) {
+                                  setActiveDetailPost(found);
+                                  return;
+                                }
+                                try {
+                                  const fetched = await postApi.getPostById(spId);
+                                  if (fetched) setActiveDetailPost(fetched);
+                                } catch {
+                                  setActiveDetailPost({
+                                    ...msg.sharedPost,
+                                    likes: [],
+                                    comments: [],
+                                  });
+                                }
                               }}
-                              className="mb-2 rounded-xl overflow-hidden bg-black/40 border border-white/10 cursor-pointer hover:opacity-90 transition group"
+                              className="mb-1.5 rounded-xl overflow-hidden bg-black/50 border border-white/15 cursor-pointer hover:opacity-95 transition group"
                             >
-                              <div className="aspect-video w-full bg-black relative">
+                              {/* Shared Post Author Header */}
+                              <div className="flex items-center gap-2 px-2.5 py-2 bg-black/40 border-b border-white/10">
+                                <Avatar
+                                  src={msg.sharedPost.author?.avatarUrl || msg.sharedPost.author?.avatar}
+                                  name={msg.sharedPost.author?.name || msg.sharedPost.author?.username}
+                                  username={msg.sharedPost.author?.username}
+                                  className="w-5 h-5"
+                                />
+                                <span className="text-xs font-semibold text-white truncate">
+                                  @{msg.sharedPost.author?.username || 'user'}
+                                </span>
+                              </div>
+                              <div className="aspect-square w-full max-h-56 bg-black relative">
                                 <img
-                                  src={msg.sharedPost.imageUrl || FALLBACK_IMAGE}
+                                  src={resolveMediaUrl(
+                                    msg.sharedPost.images?.[0] ||
+                                      msg.sharedPost.imageUrl ||
+                                      msg.sharedPost.image,
+                                    FALLBACK_IMAGE
+                                  )}
                                   alt="Shared post"
                                   className="w-full h-full object-cover"
                                   onError={(e) => {
                                     e.target.src = FALLBACK_IMAGE;
                                   }}
                                 />
-                                <div className="absolute top-1.5 left-1.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white font-medium">
-                                  @{msg.sharedPost.author?.username}
-                                </div>
+                                {msg.sharedPost.images?.length > 1 && (
+                                  <div className="absolute top-2 right-2 bg-black/70 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                                    1/{msg.sharedPost.images.length}
+                                  </div>
+                                )}
                               </div>
                               {msg.sharedPost.caption && (
-                                <p className="p-2 text-xs text-neutral-200 truncate">
+                                <p className="px-2.5 py-2 text-xs text-neutral-200 line-clamp-2">
                                   {msg.sharedPost.caption}
                                 </p>
                               )}
                             </div>
                           )}
 
-                          {/* Message Text */}
-                          <p className="break-words">{msg.text}</p>
+                          {/* Message Text (hide redundant auto-prefix when rich card is shown) */}
+                          {(!msg.sharedPost ||
+                            (msg.text && !msg.text.startsWith('Shared a post by @'))) && (
+                            <p className="break-words">{msg.text}</p>
+                          )}
                         </div>
 
                         {/* Timestamp & Seen checkmark */}

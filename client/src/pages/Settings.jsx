@@ -17,6 +17,7 @@ import {
   Search,
   ArrowLeft,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -25,7 +26,7 @@ import { Avatar } from '../components/Avatar';
 import { resolveMediaUrl, isVideoMedia } from '../utils/mediaUtils';
 
 export function Settings() {
-  const { user, updateUserSession } = useAuth();
+  const { user, updateUserSession, logout } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') || 'edit-profile';
@@ -136,6 +137,13 @@ export function Settings() {
               icon={Trash2}
               label="Recently Deleted"
             />
+            <TabButton
+              active={activeTab === 'delete-account'}
+              onClick={() => setTab('delete-account')}
+              icon={AlertTriangle}
+              label="Delete Account"
+              danger
+            />
           </nav>
         </aside>
 
@@ -147,23 +155,31 @@ export function Settings() {
           {activeTab === 'blocked' && <BlockedAccountsPanel user={user} />}
           {activeTab === 'close-friends' && <CloseFriendsPanel user={user} onUpdate={updateUserSession} />}
           {activeTab === 'recently-deleted' && <RecentlyDeletedPanel />}
+          {activeTab === 'delete-account' && <DeleteAccountPanel user={user} onLogout={logout} />}
         </main>
       </div>
     </div>
   );
 }
 
-function TabButton({ active, onClick, icon: Icon, label }) {
+function TabButton({ active, onClick, icon: Icon, label, danger = false }) {
   return (
     <button
       onClick={onClick}
       className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition text-left w-full ${
         active
-          ? 'bg-[#262626] text-white shadow-sm'
+          ? danger
+            ? 'bg-red-500/15 text-red-400 shadow-sm'
+            : 'bg-[#262626] text-white shadow-sm'
+          : danger
+          ? 'text-red-400/80 hover:text-red-400 hover:bg-red-500/10'
           : 'text-neutral-400 hover:text-white hover:bg-neutral-900'
       }`}
     >
-      <Icon size={18} className={active ? 'text-white' : 'text-neutral-400'} />
+      <Icon
+        size={18}
+        className={danger ? 'text-red-400' : active ? 'text-white' : 'text-neutral-400'}
+      />
       <span>{label}</span>
     </button>
   );
@@ -936,6 +952,165 @@ function RecentlyDeletedPanel() {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 7. Delete Account Panel
+function DeleteAccountPanel({ user, onLogout }) {
+  const navigate = useNavigate();
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [error, setError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleOpenModal = () => {
+    setPassword('');
+    setError('');
+    setIsConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!password.trim()) {
+      setError('Please enter your current password to confirm.');
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await userApi.deleteAccount(password);
+      await onLogout();
+      navigate('/login', { replace: true });
+    } catch (err) {
+      setError(err.message || 'Failed to delete account. Please check your password.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <div>
+        <h2 className="text-lg font-bold text-red-400 flex items-center gap-2">
+          <AlertTriangle size={20} />
+          <span>Delete Account</span>
+        </h2>
+        <p className="text-xs text-neutral-400 mt-1">
+          Permanently remove your Snapgram account and all associated content.
+        </p>
+      </div>
+
+      <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/25 space-y-3">
+        <p className="text-sm font-semibold text-white">
+          This action is permanent and cannot be undone.
+        </p>
+        <ul className="text-xs text-neutral-300 space-y-1.5 list-disc list-inside">
+          <li>Your profile (@{user?.username}) will be permanently deleted.</li>
+          <li>All your posts, reels, stories, comments, and direct messages will be removed.</li>
+          <li>Your followers, following relationships, and notifications will be cleared.</li>
+        </ul>
+
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={handleOpenModal}
+            className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition shadow-md"
+          >
+            Delete My Account
+          </button>
+        </div>
+      </div>
+
+      {isConfirmOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="absolute inset-0" onClick={() => !deleting && setIsConfirmOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-[#181818] border border-neutral-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <AlertTriangle size={18} className="text-red-500" />
+                <span>Confirm Account Deletion</span>
+              </h3>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setIsConfirmOpen(false)}
+                className="text-neutral-400 hover:text-white transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              Enter your current password to permanently delete{' '}
+              <span className="text-white font-semibold">@{user?.username}</span>.
+            </p>
+
+            {error && (
+              <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle size={15} className="flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmDelete} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError('');
+                    }}
+                    placeholder="Enter your password"
+                    autoFocus
+                    className="w-full bg-[#121212] text-white text-sm rounded-xl px-4 py-2.5 pr-10 border border-[#262626] focus:outline-none focus:border-red-500/60 transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+                  >
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-1">
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setIsConfirmOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleting}
+                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold transition flex items-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Permanently Delete</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

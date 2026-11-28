@@ -275,4 +275,15 @@ export const userApi = {
       fallbackHandler: async () => ({ success: true }),
     });
   },
+
+  /**
+   * Permanently delete own account after password verification
+   * Express Route: DELETE /api/users/me
+   */
+  async deleteAccount(password) {
+    return apiClient('/users/me', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    });
+  },
 };

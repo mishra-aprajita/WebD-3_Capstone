@@ -23,7 +23,7 @@ router.use(protect);
 router.get('/', getFeed);
 router.get('/feed', getFeed);
 router.get('/explore', getExplore);
-router.get('/reels', getReelPosts);       // ← video/reel posts from Post collection
+router.get('/reels', getReelPosts);
 router.get('/saved', getSavedPostIds);
 router.get('/saved/all', getSavedPosts);
 

@@ -5,6 +5,8 @@ import { Post } from '../models/Post.js';
 import { Story } from '../models/Story.js';
 import { Reel } from '../models/Reel.js';
 import { Comment } from '../models/Comment.js';
+import { Message } from '../models/Message.js';
+import { Notification } from '../models/Notification.js';
 import { createAndEmitNotification } from '../utils/notificationHelper.js';
 
 export const searchUsers = async (req, res, next) => {
@@ -393,6 +395,60 @@ export const changePassword = async (req, res, next) => {
     await user.save();
 
     res.json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/users/me
+ * Permanently delete the logged-in user's account after verifying password.
+ */
+export const deleteAccount = async (req, res, next) => {
+  try {
+    const { password } = req.body || {};
+
+    if (!password || !String(password).trim()) {
+      return res.status(400).json({ message: 'Password is required to delete your account' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const isMatch = await user.matchPassword(String(password));
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Incorrect password' });
+    }
+
+    const userId = user._id;
+
+    await Promise.all([
+      Post.deleteMany({ author: userId }),
+      Story.deleteMany({ author: userId }),
+      Reel.deleteMany({ author: userId }),
+      Comment.deleteMany({ author: userId }),
+      Follow.deleteMany({ $or: [{ follower: userId }, { following: userId }] }),
+      Message.deleteMany({ $or: [{ sender: userId }, { receiver: userId }] }),
+      Notification.deleteMany({ $or: [{ recipient: userId }, { actor: userId }] }),
+      User.updateMany(
+        {},
+        {
+          $pull: {
+            blockedUsers: userId,
+            closeFriends: userId,
+            followRequests: userId,
+          },
+        }
+      ),
+      Post.updateMany({}, { $pull: { likes: userId, reposts: userId } }),
+      Reel.updateMany({}, { $pull: { likes: userId, reposts: userId } }),
+    ]);
+
+    await User.findByIdAndDelete(userId);
+
+    res.json({ success: true, message: 'Account deleted successfully' });
   } catch (error) {
     next(error);
   }

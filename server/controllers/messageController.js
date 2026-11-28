@@ -1,6 +1,34 @@
 import { Message } from '../models/Message.js';
 import { User } from '../models/User.js';
 
+const formatSharedPost = (sharedPost) => {
+  if (!sharedPost) return null;
+  const primaryImg =
+    sharedPost.imageUrl ||
+    sharedPost.image ||
+    (Array.isArray(sharedPost.images) ? sharedPost.images[0] : '') ||
+    '';
+  return {
+    id: sharedPost._id.toString(),
+    _id: sharedPost._id.toString(),
+    imageUrl: primaryImg,
+    image: sharedPost.image || primaryImg,
+    images:
+      Array.isArray(sharedPost.images) && sharedPost.images.length > 0
+        ? sharedPost.images
+        : primaryImg
+        ? [primaryImg]
+        : [],
+    caption: sharedPost.caption || '',
+    author: {
+      username: sharedPost.author?.username,
+      name: sharedPost.author?.name || sharedPost.author?.username,
+      avatar: sharedPost.author?.avatarUrl,
+      avatarUrl: sharedPost.author?.avatarUrl,
+    },
+  };
+};
+
 // Helper to resolve user ObjectId from either an ObjectId string or a username
 const resolveUserId = async (identifier) => {
   if (!identifier) return null;
@@ -27,8 +55,8 @@ export const getConversations = async (req, res, next) => {
       .populate('receiver', 'username name avatarUrl')
       .populate({
         path: 'sharedPost',
-        select: 'imageUrl caption author',
-        populate: { path: 'author', select: 'username avatarUrl' },
+        select: 'imageUrl image images caption author',
+        populate: { path: 'author', select: 'username name avatarUrl' },
       });
 
     const conversationMap = new Map();
@@ -98,8 +126,8 @@ export const getMessagesWithUser = async (req, res, next) => {
       .populate('receiver', 'username name avatarUrl')
       .populate({
         path: 'sharedPost',
-        select: 'imageUrl caption author',
-        populate: { path: 'author', select: 'username avatarUrl' },
+        select: 'imageUrl image images caption author',
+        populate: { path: 'author', select: 'username name avatarUrl' },
       });
 
     const formatted = messages.map(msg => ({
@@ -120,14 +148,7 @@ export const getMessagesWithUser = async (req, res, next) => {
         username: msg.receiver.username,
         avatar: msg.receiver.avatarUrl,
       },
-      sharedPost: msg.sharedPost
-        ? {
-            id: msg.sharedPost._id.toString(),
-            imageUrl: msg.sharedPost.imageUrl,
-            caption: msg.sharedPost.caption,
-            author: { username: msg.sharedPost.author?.username },
-          }
-        : null,
+      sharedPost: formatSharedPost(msg.sharedPost),
       isRead: msg.isRead,
       createdAt: msg.createdAt,
     }));
@@ -165,7 +186,11 @@ export const sendMessage = async (req, res, next) => {
       return res.status(403).json({ message: 'Cannot send messages to a blocked user' });
     }
 
-    const { text, sharedPostId } = req.body;
+    const { text, sharedPostId, sharedPost } = req.body;
+    const resolvedSharedPostId =
+      sharedPostId ||
+      (typeof sharedPost === 'string' ? sharedPost : sharedPost?._id || sharedPost?.id) ||
+      null;
 
     if (!text || !text.trim()) {
       return res.status(400).json({ message: 'Message text cannot be empty' });
@@ -175,7 +200,7 @@ export const sendMessage = async (req, res, next) => {
       sender: currentUserId,
       receiver: targetUserId,
       text: text.trim(),
-      sharedPost: sharedPostId || null,
+      sharedPost: resolvedSharedPostId,
       isRead: false,
     });
 
@@ -183,11 +208,11 @@ export const sendMessage = async (req, res, next) => {
     await message.populate('sender', 'username name avatarUrl');
     await message.populate('receiver', 'username name avatarUrl');
 
-    if (sharedPostId) {
+    if (resolvedSharedPostId) {
       await message.populate({
         path: 'sharedPost',
-        select: 'imageUrl caption author',
-        populate: { path: 'author', select: 'username avatarUrl' },
+        select: 'imageUrl image images caption author',
+        populate: { path: 'author', select: 'username name avatarUrl' },
       });
     }
 
@@ -199,14 +224,7 @@ export const sendMessage = async (req, res, next) => {
       receiver: message.receiver.username,
       senderId: message.sender._id.toString(),
       receiverId: message.receiver._id.toString(),
-      sharedPost: message.sharedPost
-        ? {
-            id: message.sharedPost._id.toString(),
-            imageUrl: message.sharedPost.imageUrl,
-            caption: message.sharedPost.caption,
-            author: { username: message.sharedPost.author?.username },
-          }
-        : null,
+      sharedPost: formatSharedPost(message.sharedPost),
       isRead: message.isRead,
       createdAt: message.createdAt,
     };

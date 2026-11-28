@@ -11,6 +11,14 @@ const postSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Media URL is required'],
     },
+    image: {
+      type: String,
+      default: '',
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
     /**
      * mediaType: 'image' | 'video'
      * Derived from the uploaded file mimetype or the URL extension.
@@ -67,6 +75,12 @@ const postSchema = new mongoose.Schema(
         ret.id = ret._id.toString();
         ret.likesCount = Array.isArray(ret.likes) ? ret.likes.length : 0;
         ret.repostCount = Array.isArray(ret.reposts) ? ret.reposts.length : 0;
+        const primaryImg = ret.imageUrl || ret.image || (Array.isArray(ret.images) ? ret.images[0] : '') || '';
+        ret.imageUrl = primaryImg;
+        ret.image = ret.image || primaryImg;
+        ret.images = Array.isArray(ret.images) && ret.images.length > 0
+          ? ret.images
+          : (primaryImg ? [primaryImg] : []);
         // Ensure mediaType always present in serialised output
         if (!ret.mediaType) ret.mediaType = 'image';
         delete ret.__v;

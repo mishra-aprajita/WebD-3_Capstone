@@ -11,6 +11,7 @@ import {
   toggleCloseFriend,
   updateUserRole,
   changePassword,
+  deleteAccount,
   getBlockedUsers,
   toggleBlockUser,
   getFollowRequests,
@@ -43,6 +44,7 @@ router.post('/close-friends', toggleCloseFriend);
 router.post('/me/close-friends/:id', toggleCloseFriend);
 
 router.put('/me', updateProfile);
+router.delete('/me', deleteAccount);
 router.put('/me/password', changePassword);
 router.put('/profile', updateProfile);
 router.put('/:username', updateProfile);

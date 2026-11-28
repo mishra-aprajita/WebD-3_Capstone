@@ -11,6 +11,8 @@ import {
   Repeat2,
   Sparkles,
   Link as LinkIcon,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../context/FeedContext';
@@ -30,8 +32,17 @@ export function PostCard({ post }) {
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [shareFeedback, setShareFeedback] = useState('');
   const [imgError, setImgError] = useState(false);
+  const [currentImageIdx, setCurrentImageIdx] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
   const commentInputRef = useRef(null);
+
+  const postImages =
+    Array.isArray(post.images) && post.images.length > 0
+      ? post.images
+      : post.imageUrl || post.image
+      ? [post.imageUrl || post.image]
+      : [];
+  const activeImageSrc = postImages[currentImageIdx] || post.imageUrl || post.image;
 
   const currentUserId = String(user?._id || user?.id || '');
   const isLiked = (post.likes || []).some(
@@ -196,13 +207,60 @@ export function PostCard({ post }) {
             </div>
           </>
         ) : (
-          <img
-            src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(post.imageUrl, FALLBACK_IMAGE)}
-            alt={post.caption || 'Snapgram post'}
-            className="w-full h-full object-cover"
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
+          <>
+            <img
+              src={imgError ? FALLBACK_IMAGE : resolveMediaUrl(activeImageSrc, FALLBACK_IMAGE)}
+              alt={post.caption || 'Snapgram post'}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={() => setImgError(true)}
+            />
+            {postImages.length > 1 && (
+              <>
+                {currentImageIdx > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImgError(false);
+                      setCurrentImageIdx((i) => i - 1);
+                    }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded-full transition z-10"
+                    aria-label="Previous photo"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                )}
+                {currentImageIdx < postImages.length - 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImgError(false);
+                      setCurrentImageIdx((i) => i + 1);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded-full transition z-10"
+                    aria-label="Next photo"
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                )}
+                <div className="absolute top-2.5 right-2.5 bg-black/70 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full pointer-events-none">
+                  {currentImageIdx + 1}/{postImages.length}
+                </div>
+                <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-none">
+                  {postImages.map((_, idx) => (
+                    <span
+                      key={idx}
+                      className={`h-1.5 rounded-full transition-all ${
+                        idx === currentImageIdx ? 'w-4 bg-white' : 'w-1.5 bg-white/50'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {/* Double-tap Burst Heart Animation */}

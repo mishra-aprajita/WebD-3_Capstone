@@ -178,16 +178,22 @@ export const getExplore = async (req, res, next) => {
  */
 export const createPost = async (req, res, next) => {
   try {
-    const { imageUrl, caption = '', location = '', mediaType, isReel } = req.body;
+    const { imageUrl, image, images, caption = '', location = '', mediaType, isReel } = req.body;
 
-    if (!imageUrl) {
+    const normalizedImages = Array.isArray(images) && images.length > 0
+      ? images.filter(Boolean).slice(0, 5)
+      : (imageUrl || image ? [imageUrl || image] : []);
+
+    const primaryUrl = imageUrl || image || normalizedImages[0];
+
+    if (!primaryUrl) {
       return res.status(400).json({ message: 'Media URL is required' });
     }
 
     // Derive mediaType: use explicit value from body, else infer from URL
     let resolvedMediaType = mediaType || 'image';
     if (!mediaType) {
-      const lower = imageUrl.toLowerCase();
+      const lower = primaryUrl.toLowerCase();
       if (lower.match(/\.(mp4|mov|webm)(\?|$)/)) resolvedMediaType = 'video';
     }
 
@@ -197,7 +203,9 @@ export const createPost = async (req, res, next) => {
 
     const newPost = new Post({
       author: req.user._id,
-      imageUrl,
+      imageUrl: primaryUrl,
+      image: primaryUrl,
+      images: normalizedImages,
       mediaType: resolvedMediaType,
       isReel: resolvedIsReel,
       caption,
